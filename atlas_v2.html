@@ -773,9 +773,17 @@ function initMap() {
 
 // ----- DATA LOAD ---------------------------------------------------------
 async function loadCompta() {
-  // Use embedded data (in production, swap for fetch('./clients.json'))
   STATE.comptaById = {};
-  EMBEDDED_DATA.clients.forEach(c => { STATE.comptaById[c.id] = c; });
+  try {
+    const res = await fetch('./clients.json?t=' + Date.now());
+    if (!res.ok) throw new Error('clients.json introuvable');
+    const data = await res.json();
+    data.clients.forEach(c => { STATE.comptaById[c.id] = c; });
+    console.log(`✓ ${data.clients.length} clients chargés depuis clients.json`);
+  } catch (e) {
+    console.warn('Fallback sur EMBEDDED_DATA:', e.message);
+    EMBEDDED_DATA.clients.forEach(c => { STATE.comptaById[c.id] = c; });
+  }
 }
 
 function loadSheet() {

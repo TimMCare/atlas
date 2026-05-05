@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Atlas — Convertisseur compta</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;800;900&family=Manrope:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #111418; --paper: #fafaf7; --paper-warm: #f3efe6;
+    --rule: #e8e4d8; --accent: #c84b1f; --green: #2d6b3a;
+    --red: #b8341c; --slate: #6b7280;
+  }
+  body { background: var(--paper); color: var(--ink); font-family: 'Manrope', sans-serif; }
+  .font-display { font-family: 'Fraunces', serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  .num-tab { font-variant-numeric: tabular-nums; }
+  .drop-zone {
+    border: 2px dashed var(--ink);
+    transition: all 0.2s;
+    background: var(--paper-warm);
+  }
+  .drop-zone.over { background: #f8e8d8; transform: scale(1.01); }
+  .btn {
+    background: var(--ink); color: var(--paper);
+    padding: 12px 24px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em; font-size: 12px;
+    cursor: pointer; border: none; transition: all 0.15s;
+  }
+  .btn:hover:not(:disabled) { background: var(--accent); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .corner-mark {
+    position: absolute; width: 12px; height: 12px;
+    border-color: var(--ink); border-style: solid; border-width: 0;
+  }
+  .tl { top: 0; left: 0; border-top-width: 1px; border-left-width: 1px; }
+  .tr { top: 0; right: 0; border-top-width: 1px; border-right-width: 1px; }
+  .bl { bottom: 0; left: 0; border-bottom-width: 1px; border-left-width: 1px; }
+  .br { bottom: 0; right: 0; border-bottom-width: 1px; border-right-width: 1px; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<div class="max-w-3xl mx-auto px-6 py-12">
+
+  <header class="mb-10">
+    <div class="text-[10px] uppercase tracking-[0.3em] font-bold" style="color: var(--slate)">Atlas · Outils</div>
+    <h1 class="font-display text-5xl font-black tracking-tight mt-1">Convertisseur compta</h1>
+    <div class="h-px mt-4" style="background: var(--ink); width: 60px;"></div>
+    <p class="mt-4 text-sm" style="color: var(--slate)">
+      Glisse ton fichier compta mensuel (export Sellsy CSV) ci-dessous.
+      Tu récupères un fichier <span class="font-mono font-bold">clients.json</span> prêt à uploader sur GitHub.
+    </p>
+  </header>
+
+  <!-- DROP ZONE -->
+  <div id="drop" class="drop-zone p-12 text-center cursor-pointer relative">
+    <span class="corner-mark tl"></span><span class="corner-mark tr"></span>
+    <span class="corner-mark bl"></span><span class="corner-mark br"></span>
+    <input type="file" id="file-input" accept=".csv" class="hidden">
+    <div class="font-display text-2xl font-bold mb-2">Dépose ton CSV ici</div>
+    <div class="text-xs" style="color: var(--slate)">ou clique pour choisir un fichier</div>
+    <div class="font-mono text-[10px] mt-4" style="color: var(--slate)">Format attendu : <code>Analyse_CA_YYYYMM*.csv</code></div>
+  </div>
+
+  <!-- STATUS -->
+  <div id="status" class="hidden mt-6 p-5 relative" style="background: var(--paper-warm); border: 1px solid var(--ink);">
+    <span class="corner-mark tl"></span><span class="corner-mark tr"></span>
+    <span class="corner-mark bl"></span><span class="corner-mark br"></span>
+    <div id="status-content"></div>
+  </div>
+
+  <!-- INSTRUCTIONS -->
+  <section class="mt-12 pt-8" style="border-top: 1px solid var(--rule);">
+    <h2 class="font-display text-xl font-bold mb-4">Comment l'utiliser chaque mois</h2>
+    <ol class="space-y-3 text-sm">
+      <li class="flex gap-3"><span class="font-mono font-bold" style="color: var(--accent);">01</span><span>Récupère le nouveau fichier compta du mois (CSV exporté de Sellsy).</span></li>
+      <li class="flex gap-3"><span class="font-mono font-bold" style="color: var(--accent);">02</span><span>Glisse-le dans la zone ci-dessus.</span></li>
+      <li class="flex gap-3"><span class="font-mono font-bold" style="color: var(--accent);">03</span><span>Clique sur <span class="font-bold">Télécharger clients.json</span> quand le bouton apparaît.</span></li>
+      <li class="flex gap-3"><span class="font-mono font-bold" style="color: var(--accent);">04</span><span>Va sur ton dépôt GitHub, ouvre <span class="font-mono">clients.json</span>, clique sur le crayon ✏️, supprime tout, colle le contenu du nouveau fichier, commit.</span></li>
+      <li class="flex gap-3"><span class="font-mono font-bold" style="color: var(--accent);">05</span><span>Attends 1-2 min, ouvre Atlas en navigation privée. Ton outil est à jour.</span></li>
+    </ol>
+    <p class="mt-6 text-xs italic" style="color: var(--slate)">
+      Méthode encore plus rapide pour l'étape 4 : sur GitHub, tu peux aussi supprimer l'ancien <code>clients.json</code> et uploader le nouveau via "Add file → Upload files". Même résultat.
+    </p>
+  </section>
+
+</div>
+
+<script>
+// =========================================================================
+// PARSER COMPTA — porté de parse_compta.py
+// =========================================================================
+
+const CONFIG = {
+  EVENT_ABS_THRESHOLD: 20,
+  EVENT_REL_THRESHOLD: 0.05,
+  PROBE_NOISE_FLOOR: 1.0
+};
+
+const MONTH_FR = {
+  'janv': 1, 'févr': 2, 'mars': 3, 'avr': 4, 'mai': 5, 'juin': 6,
+  'juil': 7, 'août': 8, 'sept': 9, 'oct': 10, 'nov': 11, 'déc': 12
+};
+
+function parseValue(s) {
+  if (!s) return 0;
+  let v = String(s).trim().replace(/\u00a0/g, '').replace(/ /g, '').replace(',', '.');
+  if (!v || v === '-') return 0;
+  if (v.startsWith('(') && v.endsWith(')')) {
+    const n = parseFloat(v.slice(1, -1));
+    return isNaN(n) ? 0 : -n;
+  }
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function parseMonthLabel(label) {
+  if (!label) return null;
+  const s = String(label).trim().replace(/\.$/, '');
+  const m = s.match(/^([a-zéûà]+)\.?-(\d{2})$/i);
+  if (!m) return null;
+  const monthStr = m[1].toLowerCase();
+  if (!(monthStr in MONTH_FR)) return null;
+  return { year: 2000 + parseInt(m[2]), month: MONTH_FR[monthStr] };
+}
+
+function parseCompta(rows) {
+  const headerIdx = rows.findIndex(r => r && r[0] && r[0].trim() === 'ID Client Sellsy');
+  if (headerIdx < 0) throw new Error("En-tête 'ID Client Sellsy' introuvable");
+
+  const headers = rows[headerIdx].map(h => (h || '').trim());
+  const data = rows.slice(headerIdx + 1);
+
+  const monthCols = [];
+  headers.forEach((col, j) => {
+    const ym = parseMonthLabel(col);
+    if (ym) monthCols.push({ idx: j, label: col, year: ym.year, month: ym.month });
+  });
+  if (monthCols.length === 0) throw new Error("Aucune colonne mensuelle trouvée");
+
+  const colIdx = {};
+  headers.forEach((h, i) => colIdx[h] = i);
+  const required = ['ID Client Sellsy', 'Secteur', 'Région', 'Département', 'Pays', 'Product - Level 1', 'Product - Level 2'];
+  for (const r of required) if (!(r in colIdx)) throw new Error(`Colonne requise absente : ${r}`);
+
+  const clients = {};
+  for (const row of data) {
+    if (!row || row.length <= colIdx['ID Client Sellsy']) continue;
+    const cid = (row[colIdx['ID Client Sellsy']] || '').toString().trim();
+    if (!cid) continue;
+
+    if (!clients[cid]) {
+      clients[cid] = {
+        id: cid,
+        secteur: (row[colIdx['Secteur']] || '').trim(),
+        region: (row[colIdx['Région']] || '').trim(),
+        departement: (row[colIdx['Département']] || '').trim(),
+        pays: (row[colIdx['Pays']] || '').trim(),
+        products: [],
+        monthly: new Array(monthCols.length).fill(0)
+      };
+    }
+
+    const prod = `${(row[colIdx['Product - Level 1']]||'').trim()} / ${(row[colIdx['Product - Level 2']]||'').trim()}`;
+    if (prod !== ' / ' && !clients[cid].products.includes(prod)) clients[cid].products.push(prod);
+
+    monthCols.forEach((mc, k) => {
+      if (mc.idx < row.length) clients[cid].monthly[k] += parseValue(row[mc.idx]);
+    });
+  }
+
+  return { clients, monthCols };
+}
+
+function findCurrentMonthIdx(monthCols) {
+  const now = new Date();
+  for (let i = 0; i < monthCols.length; i++) {
+    if (monthCols[i].year === now.getFullYear() && monthCols[i].month === now.getMonth() + 1) return i;
+  }
+  // Fallback : dernier mois ayant au moins un client actif
+  return monthCols.length - 1;
+}
+
+function detectEvents(monthly, monthCols, currentIdx) {
+  const events = [];
+  const active = [];
+  monthly.forEach((v, i) => { if (v > CONFIG.PROBE_NOISE_FLOOR) active.push(i); });
+  if (active.length === 0) return [];
+
+  const first = active[0], last = active[active.length - 1];
+
+  events.push({
+    type: 'SIGNATURE',
+    month: monthCols[first].label,
+    year: monthCols[first].year,
+    month_num: monthCols[first].month,
+    mrr_after: round(monthly[first])
+  });
+
+  for (let i = first + 2; i < last; i++) {
+    const prev = monthly[i - 1], cur = monthly[i];
+    if (prev <= CONFIG.PROBE_NOISE_FLOOR || cur <= CONFIG.PROBE_NOISE_FLOOR) continue;
+    const delta = cur - prev;
+    if (Math.abs(delta) < CONFIG.EVENT_ABS_THRESHOLD) continue;
+    if (Math.abs(delta / prev) < CONFIG.EVENT_REL_THRESHOLD) continue;
+    events.push({
+      type: delta > 0 ? 'UPSELL' : 'DOWNSELL',
+      month: monthCols[i].label,
+      year: monthCols[i].year,
+      month_num: monthCols[i].month,
+      mrr_before: round(prev),
+      mrr_after: round(cur),
+      delta: round(delta)
+    });
+  }
+
+  if (currentIdx !== null) {
+    if (last < currentIdx) {
+      events.push({
+        type: 'CHURN_PAST',
+        month: monthCols[last].label,
+        year: monthCols[last].year,
+        month_num: monthCols[last].month,
+        mrr_before: round(monthly[last])
+      });
+    } else if (last > currentIdx && last < monthly.length - 1) {
+      events.push({
+        type: 'CHURN_SCHEDULED',
+        month: monthCols[last].label,
+        year: monthCols[last].year,
+        month_num: monthCols[last].month,
+        mrr_before: round(monthly[last])
+      });
+    }
+  }
+  return events;
+}
+
+function computeKPIs(monthly, currentIdx) {
+  const n = monthly.length;
+  const currentMRR = currentIdx !== null ? monthly[currentIdx] : 0;
+  const fwdSum = (m) => {
+    if (currentIdx === null) return 0;
+    let s = 0;
+    const end = Math.min(currentIdx + m, n);
+    for (let i = currentIdx; i < end; i++) s += monthly[i];
+    return s;
+  };
+  let ltv = 0;
+  if (currentIdx !== null) for (let i = 0; i <= currentIdx; i++) ltv += monthly[i];
+
+  let trend = null;
+  if (currentIdx !== null && currentIdx >= 11) {
+    let recent = 0, prior = 0;
+    for (let i = currentIdx - 5; i <= currentIdx; i++) recent += monthly[i];
+    for (let i = currentIdx - 11; i <= currentIdx - 6; i++) prior += monthly[i];
+    recent /= 6; prior /= 6;
+    if (prior > CONFIG.PROBE_NOISE_FLOOR) trend = round(100 * (recent - prior) / prior, 1);
+  }
+
+  return {
+    current_mrr: round(currentMRR),
+    mrr_forward_6m: round(fwdSum(6)),
+    mrr_forward_12m: round(fwdSum(12)),
+    mrr_forward_24m: round(fwdSum(24)),
+    ltv_realized: round(ltv),
+    trend_6m_pct: trend,
+    is_active: currentMRR > CONFIG.PROBE_NOISE_FLOOR
+  };
+}
+
+function round(v, d = 2) {
+  const f = Math.pow(10, d);
+  return Math.round(v * f) / f;
+}
+
+function buildRecord(client, monthCols, currentIdx) {
+  const events = detectEvents(client.monthly, monthCols, currentIdx);
+  const kpis = computeKPIs(client.monthly, currentIdx);
+  const sig = events.find(e => e.type === 'SIGNATURE');
+  const sigDate = sig ? `${sig.year}-${String(sig.month_num).padStart(2,'0')}` : null;
+  let yrs = null;
+  if (sig) {
+    const now = new Date();
+    yrs = round((now.getFullYear() - sig.year) + (now.getMonth() + 1 - sig.month_num) / 12, 2);
+  }
+  return {
+    id: client.id,
+    secteur: client.secteur,
+    region: client.region,
+    departement: client.departement,
+    pays: client.pays,
+    products: client.products,
+    signature_date: sigDate,
+    years_since_signature: yrs,
+    ...kpis,
+    events,
+    monthly_history: client.monthly.map(v => round(v))
+  };
+}
+
+// =========================================================================
+// UI
+// =========================================================================
+
+const dropZone = document.getElementById('drop');
+const fileInput = document.getElementById('file-input');
+const status = document.getElementById('status');
+const statusContent = document.getElementById('status-content');
+
+dropZone.onclick = () => fileInput.click();
+fileInput.onchange = e => { if (e.target.files[0]) handleFile(e.target.files[0]); };
+
+['dragenter', 'dragover'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('over'); })
+);
+['dragleave', 'drop'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('over'); })
+);
+dropZone.addEventListener('drop', e => {
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+function showStatus(html) {
+  status.classList.remove('hidden');
+  statusContent.innerHTML = html;
+}
+
+function handleFile(file) {
+  showStatus(`<div class="font-mono text-xs">⏳ Lecture de <b>${escapeHtml(file.name)}</b>…</div>`);
+  Papa.parse(file, {
+    skipEmptyLines: true,
+    complete: (results) => {
+      try {
+        const { clients, monthCols } = parseCompta(results.data);
+        const currentIdx = findCurrentMonthIdx(monthCols);
+        const records = Object.values(clients).map(c => buildRecord(c, monthCols, currentIdx));
+        const output = {
+          meta: {
+            parsed_at: new Date().toISOString(),
+            current_month: monthCols[currentIdx].label,
+            current_month_idx: currentIdx,
+            month_columns: monthCols.map(m => m.label),
+            total_clients: records.length,
+            source_file: file.name,
+            thresholds: CONFIG
+          },
+          clients: records
+        };
+        renderResult(output);
+      } catch (e) {
+        showStatus(`<div style="color: var(--red);"><b>Erreur :</b> ${escapeHtml(e.message)}</div>
+          <div class="text-xs mt-2" style="color: var(--slate)">Vérifie que ton fichier est bien un export CSV de Sellsy avec la ligne d'en-tête "ID Client Sellsy".</div>`);
+      }
+    },
+    error: (err) => {
+      showStatus(`<div style="color: var(--red);"><b>Erreur de parsing CSV :</b> ${escapeHtml(err.message)}</div>`);
+    }
+  });
+}
+
+function renderResult(output) {
+  const c = output.clients;
+  const actives = c.filter(x => x.is_active);
+  const totalMRR = actives.reduce((s, x) => s + x.current_mrr, 0);
+  const totalLTV = c.reduce((s, x) => s + x.ltv_realized, 0);
+  const fwd12 = c.reduce((s, x) => s + x.mrr_forward_12m, 0);
+
+  const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+
+  showStatus(`
+    <div class="font-display text-2xl font-bold mb-1" style="color: var(--green);">✓ Conversion réussie</div>
+    <div class="text-xs mb-4" style="color: var(--slate)">Fichier source · ${escapeHtml(output.meta.source_file)} · mois courant <span class="font-mono font-bold">${output.meta.current_month}</span></div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div><div class="text-[9px] uppercase tracking-wider font-bold" style="color: var(--slate);">Clients total</div><div class="font-display text-2xl font-black num-tab">${c.length}</div></div>
+      <div><div class="text-[9px] uppercase tracking-wider font-bold" style="color: var(--slate);">Dont actifs</div><div class="font-display text-2xl font-black num-tab" style="color: var(--green);">${actives.length}</div></div>
+      <div><div class="text-[9px] uppercase tracking-wider font-bold" style="color: var(--slate);">MRR actuel</div><div class="font-display text-2xl font-black num-tab">${Math.round(totalMRR).toLocaleString('fr-FR')} €</div></div>
+      <div><div class="text-[9px] uppercase tracking-wider font-bold" style="color: var(--slate);">CA 12m</div><div class="font-display text-2xl font-black num-tab">${Math.round(fwd12).toLocaleString('fr-FR')} €</div></div>
+    </div>
+
+    <a href="${url}" download="clients.json" class="btn inline-block">↓ Télécharger clients.json</a>
+
+    <div class="mt-5 pt-4 text-xs" style="border-top: 1px solid var(--rule); color: var(--slate)">
+      <b style="color: var(--ink)">Prochaine étape :</b>
+      Va sur <a href="https://github.com/timmcare/atlas/blob/main/clients.json" target="_blank" style="color: var(--accent); text-decoration: underline;">github.com/timmcare/atlas/blob/main/clients.json</a>,
+      clique sur le crayon ✏️ pour éditer, sélectionne tout (Cmd+A), supprime, puis ouvre le fichier <code>clients.json</code> téléchargé dans un éditeur texte (TextEdit), copie tout (Cmd+A, Cmd+C), colle dans GitHub (Cmd+V), et clique sur Commit changes.
+    </div>
+  `);
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+
+</body>
+</html>

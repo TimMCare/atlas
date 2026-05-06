@@ -807,7 +807,13 @@ function loadSheet() {
           hubspot: row["Lien HubSpot"] || "",
           visite: row["Visite prévue"] || "",
           doublon: row["Vérification Doublon"] || ""
-        })).filter(r => !isNaN(r.lat) && !isNaN(r.lon) && !r.doublon);
+        })).filter(r => {
+  if (isNaN(r.lat) || isNaN(r.lon)) return false;
+  // On garde toujours les Clients / Devis / Discussion, même flaggés doublon
+  if (['Client', 'Devis envoyé', 'Discussion'].includes(r.statut)) return true;
+  // Pour les Prospects et autres, on filtre les doublons
+  return !r.doublon;
+});
         document.getElementById('last-sync').textContent = new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'});
         resolve();
       },

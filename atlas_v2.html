@@ -67,6 +67,25 @@
     box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   }
 
+  /* Pins de tournée (numérotés, colorés par jour) */
+  .tour-pin {
+    width: 24px; height: 24px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid var(--paper);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .tour-pin span {
+    transform: rotate(45deg);
+    color: var(--paper);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 10px;
+  }
+  .tour-pin.start { background: var(--ink) !important; width: 28px; height: 28px; }
+  .tour-pin.start span { font-size: 13px; }
+
   /* Popup */
   .leaflet-popup-content-wrapper {
     border-radius: 0; background: var(--paper);
@@ -386,6 +405,24 @@
             <span style="color: var(--slate)">150 km</span>
           </div>
         </div>
+
+        <div class="mt-4 pt-4" style="border-top: 1px dashed var(--rule);">
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Jours</label>
+              <input id="tour-days" type="number" min="1" max="10" value="1" class="input-paper">
+            </div>
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Visites / jour</label>
+              <input id="tour-perday" type="number" min="1" max="20" value="10" class="input-paper">
+            </div>
+          </div>
+          <button onclick="planTour()" class="w-full py-2.5 text-xs font-semibold uppercase tracking-[0.15em] flex items-center justify-center gap-2" style="background: var(--accent); color: var(--paper);">
+            ⟲ Optimiser la tournée
+          </button>
+          <div class="text-[9px] mt-2" style="color: var(--slate);">Départ : adresse recherchée ou « Ma position » ci-dessus.</div>
+          <div id="tour-summary" class="hidden mt-2 text-[10px] font-mono text-center py-1.5" style="color: var(--ink); background: var(--paper-warm); border: 1px solid var(--rule);"></div>
+        </div>
       </div>
     </div>
   </aside>
@@ -438,16 +475,29 @@
           <div class="space-y-1" id="legend-items"></div>
         </div>
         <button id="reset-radius-map" onclick="clearRadius()" class="hidden absolute top-4 left-14 z-[1000] p-2" style="background: var(--paper); border: 1px solid var(--ink); color: var(--accent);">✕ Tournée</button>
+        <div id="tour-stats" class="hidden absolute top-4 right-4 z-[1000] flex gap-2">
+          <div class="px-3 py-2 text-center" style="background: var(--paper); border: 1px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);">
+            <div class="text-[8px] uppercase tracking-wider font-bold" style="color: var(--slate)">Distance</div>
+            <div class="font-mono font-bold text-sm num-tab" id="tour-km">—</div>
+          </div>
+          <div class="px-3 py-2 text-center" style="background: var(--paper); border: 1px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);">
+            <div class="text-[8px] uppercase tracking-wider font-bold" style="color: var(--slate)">Étapes</div>
+            <div class="font-mono font-bold text-sm num-tab" id="tour-stops">—</div>
+          </div>
+        </div>
       </div>
 
       <div class="border-t" style="border-color: var(--ink); background: var(--paper); height: 200px;">
         <div class="px-4 md:px-6 py-2 flex justify-between items-center" style="background: var(--paper-warm); border-bottom: 1px solid var(--rule);">
           <div class="text-[10px] uppercase tracking-[0.2em] font-bold" style="color: var(--slate)">
-            Sélection · <span id="table-count">0</span>
+            <span id="table-title">Sélection</span> · <span id="table-count">0</span>
           </div>
-          <button onclick="exportCSV()" class="text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1" style="color: var(--accent);">
-            ↓ Export tournée
-          </button>
+          <div class="flex items-center gap-4">
+            <button id="clear-tour" onclick="clearTour()" class="hidden text-[10px] uppercase tracking-wider font-semibold" style="color: var(--slate);">✕ Effacer la tournée</button>
+            <button onclick="exportCSV()" class="text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1" style="color: var(--accent);">
+              ↓ Export tournée
+            </button>
+          </div>
         </div>
         <div class="overflow-auto" style="height: calc(100% - 33px);">
           <table class="w-full text-left">
@@ -459,6 +509,8 @@
                 <th class="px-4 py-2 sortable" onclick="sortTable('statut')">Statut</th>
                 <th class="px-4 py-2">Référent</th>
                 <th class="px-4 py-2 sortable text-right" onclick="sortTable('ca')">CA</th>
+                <th class="px-4 py-2 text-center">Jour</th>
+                <th class="px-4 py-2 text-right">+ km</th>
               </tr>
             </thead>
             <tbody id="table-body" class="text-[11px]"></tbody>
@@ -616,6 +668,7 @@ const STATE = {
   map: null, dashMap: null,
   markersLayer: null, dashLayer: null, labelsLayer: null,
   radius: { center: null, km: 30, circle: null, marker: null },
+  tour: { active: false, stops: [] },
   selectionMode: false,
   sort: { field: 'ca', dir: 'desc' },
   geoData: { regions: null, depts: null },
@@ -654,6 +707,7 @@ function initMap() {
   }).addTo(STATE.map);
   L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
   STATE.markersLayer = L.layerGroup().addTo(STATE.map);
+  STATE.tourLayer = L.layerGroup().addTo(STATE.map);
   STATE.map.on('click', (e) => {
     if (STATE.selectionMode) setRadiusCenter(e.latlng.lat, e.latlng.lng);
   });
@@ -832,6 +886,15 @@ function applyFilters() {
     STATE.filtered = [...STATE.filtered].sort((a,b) => b.ca - a.ca).slice(0, 20);
   }
 
+  // Toute modif de filtre invalide une tournée déjà calculée (le périmètre a changé)
+  if (STATE.tour.active) {
+    STATE.tour.active = false;
+    STATE.tour.stops = [];
+    document.getElementById('clear-tour')?.classList.add('hidden');
+    document.getElementById('tour-summary')?.classList.add('hidden');
+    document.getElementById('tour-stats')?.classList.add('hidden');
+  }
+
   renderMarkers();
   renderTable();
   renderKPIs();
@@ -892,6 +955,13 @@ function renderQuickViewCounts() {
 // ---- MARKERS -----------------------------------------------------------
 function renderMarkers() {
   STATE.markersLayer.clearLayers();
+  STATE.tourLayer.clearLayers();
+
+  if (STATE.tour.active) {
+    renderTourMarkers();
+    return;
+  }
+
   // Group by exact lat/lon to handle multi-établissements à la même adresse
   const groups = {};
   STATE.filtered.forEach(r => {
@@ -965,6 +1035,153 @@ function buildPopup(group) {
   }).join('');
 }
 
+// ---- TOURNÉE (optimisation automatique) --------------------------------
+const TOUR_DAY_COLORS = ['#8a2f12', '#2a5d8f', '#2d6b3a', '#6b4d8f', '#c8841f'];
+
+// Plus proche voisin + passe de 2-opt légère (mêmes principes que le prototype tournée_3)
+function optimizeRoute(items, start) {
+  const remaining = [...items];
+  const route = [];
+  let current = start;
+  while (remaining.length > 0) {
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const d = haversine(current.lat, current.lon, remaining[i].lat, remaining[i].lon);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    const next = remaining.splice(bestIdx, 1)[0];
+    route.push(next);
+    current = next;
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    let improved = false;
+    for (let i = 0; i < route.length - 1; i++) {
+      for (let j = i + 2; j < route.length; j++) {
+        const a = i === 0 ? start : route[i - 1];
+        const b = route[i];
+        const c = route[j];
+        const d = j === route.length - 1 ? null : route[j + 1];
+        const d1 = haversine(a.lat, a.lon, b.lat, b.lon) + (d ? haversine(c.lat, c.lon, d.lat, d.lon) : 0);
+        const d2 = haversine(a.lat, a.lon, c.lat, c.lon) + (d ? haversine(b.lat, b.lon, d.lat, d.lon) : 0);
+        if (d2 < d1 - 0.01) {
+          const seg = route.slice(i, j + 1).reverse();
+          route.splice(i, j - i + 1, ...seg);
+          improved = true;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  let prev = start;
+  route.forEach(r => { r._distFromPrev = haversine(prev.lat, prev.lon, r.lat, r.lon); prev = r; });
+  return route;
+}
+
+function splitIntoDays(route, days, perDay) {
+  const total = Math.min(route.length, days * perDay);
+  const actualPerDay = Math.ceil(total / days);
+  const result = [];
+  for (let i = 0; i < total; i++) {
+    const r = route[i];
+    r._day = Math.floor(i / actualPerDay) + 1;
+    r._order = i + 1;
+    result.push(r);
+  }
+  return result;
+}
+
+function planTour() {
+  if (!STATE.radius.center) {
+    alert("Définis d'abord un point de départ : recherche une adresse ou clique sur « Ma position » dans le bloc Localiser ci-dessus.");
+    return;
+  }
+  if (STATE.filtered.length === 0) {
+    alert("Aucun établissement dans la sélection actuelle. Ajuste tes filtres d'abord.");
+    return;
+  }
+  const days = Math.max(1, parseInt(document.getElementById('tour-days').value) || 1);
+  const perDay = Math.max(1, parseInt(document.getElementById('tour-perday').value) || 10);
+
+  const pool = STATE.filtered.map(r => ({ ...r })); // clone : ne touche pas STATE.filtered
+  const route = optimizeRoute(pool, STATE.radius.center);
+  STATE.tour.stops = splitIntoDays(route, days, perDay);
+  STATE.tour.active = true;
+
+  renderMarkers();
+  renderTable();
+  updateTourSummary();
+  document.getElementById('clear-tour').classList.remove('hidden');
+}
+
+function clearTour() {
+  STATE.tour.active = false;
+  STATE.tour.stops = [];
+  document.getElementById('clear-tour').classList.add('hidden');
+  document.getElementById('tour-summary').classList.add('hidden');
+  document.getElementById('tour-stats').classList.add('hidden');
+  renderMarkers();
+  renderTable();
+}
+
+function updateTourSummary() {
+  if (!STATE.tour.active) return;
+  const totalKm = STATE.tour.stops.reduce((s, r) => s + (r._distFromPrev || 0), 0);
+  const nDays = new Set(STATE.tour.stops.map(r => r._day)).size;
+  document.getElementById('tour-km').textContent = Math.round(totalKm) + ' km';
+  document.getElementById('tour-stops').textContent = STATE.tour.stops.length + ' / ' + nDays + ' j';
+  document.getElementById('tour-stats').classList.remove('hidden');
+  const el = document.getElementById('tour-summary');
+  el.textContent = `${STATE.tour.stops.length} visites · ${nDays} jour(s) · ${Math.round(totalKm)} km`;
+  el.classList.remove('hidden');
+}
+
+function renderTourMarkers() {
+  const bounds = [];
+
+  // Point de départ
+  const c = STATE.radius.center;
+  if (c) {
+    const icon = L.divIcon({
+      className: '', html: `<div class="tour-pin start"><span>★</span></div>`,
+      iconSize: [28, 28], iconAnchor: [14, 28]
+    });
+    const m = L.marker([c.lat, c.lon], { icon });
+    m.bindPopup(`<div style="padding: 10px 14px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">Point de départ</div>`);
+    STATE.markersLayer.addLayer(m);
+    bounds.push([c.lat, c.lon]);
+  }
+
+  // Étapes numérotées, colorées par jour
+  STATE.tour.stops.forEach(r => {
+    const color = TOUR_DAY_COLORS[(r._day - 1) % TOUR_DAY_COLORS.length];
+    const icon = L.divIcon({
+      className: '', html: `<div class="tour-pin" style="background: ${color};"><span>${r._order}</span></div>`,
+      iconSize: [24, 24], iconAnchor: [12, 24]
+    });
+    const marker = L.marker([r.lat, r.lon], { icon });
+    const infoBand = `<div style="padding: 8px 16px; font-family: 'JetBrains Mono', monospace; font-size: 10px; background: var(--paper-warm); border-top: 1px solid var(--rule);">Jour ${r._day} · Étape ${r._order} · +${r._distFromPrev.toFixed(1)} km</div>`;
+    marker.bindPopup(buildPopup([r]) + infoBand, { className: 'custom-popup', maxWidth: 360 });
+    STATE.markersLayer.addLayer(marker);
+    bounds.push([r.lat, r.lon]);
+  });
+
+  // Tracé par jour (relie le point précédent, même en changeant de jour)
+  const byDay = {};
+  let prevPt = c;
+  STATE.tour.stops.forEach(r => {
+    if (!byDay[r._day]) byDay[r._day] = [];
+    if (prevPt) byDay[r._day].push([prevPt.lat, prevPt.lon]);
+    byDay[r._day].push([r.lat, r.lon]);
+    prevPt = r;
+  });
+  Object.entries(byDay).forEach(([day, pts]) => {
+    const color = TOUR_DAY_COLORS[(parseInt(day) - 1) % TOUR_DAY_COLORS.length];
+    L.polyline(pts, { color, weight: 2.5, opacity: 0.75, dashArray: day == 1 ? null : '6,6' }).addTo(STATE.tourLayer);
+  });
+
+  if (bounds.length) STATE.map.fitBounds(bounds, { padding: [40, 40] });
+}
+
 // ---- KPIs --------------------------------------------------------------
 function renderKPIs() {
   const data = STATE.filtered;
@@ -987,18 +1204,26 @@ function renderKPIs() {
 // ---- TABLE -------------------------------------------------------------
 function renderTable() {
   const body = document.getElementById('table-body');
-  document.getElementById('table-count').textContent = STATE.filtered.length;
+  const isTour = STATE.tour.active;
+  const source = isTour ? STATE.tour.stops : STATE.filtered;
 
-  const sorted = [...STATE.filtered].sort((a, b) => {
-    const dir = STATE.sort.dir === 'desc' ? -1 : 1;
-    let av = a[STATE.sort.field] ?? -Infinity;
-    let bv = b[STATE.sort.field] ?? -Infinity;
-    if (typeof av === 'string') return dir * av.localeCompare(bv);
-    return dir * (av - bv);
-  });
+  document.getElementById('table-count').textContent = source.length;
+  document.getElementById('table-title').textContent = isTour ? 'Tournée optimisée' : 'Sélection';
+
+  const sorted = isTour
+    ? [...source].sort((a, b) => a._order - b._order)
+    : [...source].sort((a, b) => {
+        const dir = STATE.sort.dir === 'desc' ? -1 : 1;
+        let av = a[STATE.sort.field] ?? -Infinity;
+        let bv = b[STATE.sort.field] ?? -Infinity;
+        if (typeof av === 'string') return dir * av.localeCompare(bv);
+        return dir * (av - bv);
+      });
 
   body.innerHTML = sorted.slice(0, 200).map(r => {
     const cfg = STATUS_CONFIG[r.statut] || {};
+    const dayCell = isTour ? `#${r._order} · J${r._day}` : '—';
+    const kmCell = isTour ? `+${r._distFromPrev.toFixed(1)} km` : '—';
     return `
       <tr class="row-clickable" data-id="${escapeHtml(r.id)}" style="border-bottom: 1px solid var(--rule);" onclick="zoomToMarker('${escapeHtml(r.id)}', ${r.lat}, ${r.lon})">
         <td class="px-4 py-2 font-semibold">${escapeHtml(r.nom)}</td>
@@ -1007,12 +1232,15 @@ function renderTable() {
         <td class="px-4 py-2"><span class="pill ${cfg.pillClass||''}">${escapeHtml(r.statut)}</span></td>
         <td class="px-4 py-2 text-slate-500">${escapeHtml(r.referent || '—')}</td>
         <td class="px-4 py-2 text-right font-mono num-tab">${r.ca > 0 ? Math.round(r.ca).toLocaleString('fr-FR') + ' €' : '—'}</td>
+        <td class="px-4 py-2 text-center font-mono num-tab text-[10px]">${dayCell}</td>
+        <td class="px-4 py-2 text-right font-mono num-tab text-[10px]">${kmCell}</td>
       </tr>
     `;
   }).join('');
 }
 
 function sortTable(field) {
+  if (STATE.tour.active) return; // ordre figé par la tournée
   if (STATE.sort.field === field) STATE.sort.dir = STATE.sort.dir === 'desc' ? 'asc' : 'desc';
   else { STATE.sort.field = field; STATE.sort.dir = 'desc'; }
   renderTable();
@@ -1323,14 +1551,25 @@ async function searchAddress() {
 
 // ---- EXPORT ------------------------------------------------------------
 function exportCSV() {
-  if (STATE.filtered.length === 0) { alert('Aucun établissement à exporter'); return; }
-  const headers = ['ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Référent','Mail','Adresse','Visite','HubSpot'];
-  const rows = STATE.filtered.map(r => [
+  const isTour = STATE.tour.active;
+  const source = isTour ? [...STATE.tour.stops].sort((a,b) => a._order - b._order) : STATE.filtered;
+  if (source.length === 0) { alert('Aucun établissement à exporter'); return; }
+  function q(s) { return `"${(s||'').replace(/"/g, '""')}"`; }
+
+  const headers = isTour
+    ? ['Ordre','Jour','ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Référent','Mail','Adresse','Visite','HubSpot','Distance étape (km)']
+    : ['ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Référent','Mail','Adresse','Visite','HubSpot'];
+
+  const rows = source.map(r => isTour ? [
+    r._order, r._day, r.id, q(r.nom), r.statut, q(r.type), Math.round(r.ca),
+    q(r.ville), r.cp, q(r.dept), q(r.region),
+    q(r.referent), q(r.mail), q(r.adresse), q(r.visite), q(r.hubspot), r._distFromPrev.toFixed(1)
+  ] : [
     r.id, q(r.nom), r.statut, q(r.type), Math.round(r.ca),
     q(r.ville), r.cp, q(r.dept), q(r.region),
     q(r.referent), q(r.mail), q(r.adresse), q(r.visite), q(r.hubspot)
   ]);
-  function q(s) { return `"${(s||'').replace(/"/g, '""')}"`; }
+
   const csv = '\uFEFF' + [headers, ...rows].map(r => r.join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');

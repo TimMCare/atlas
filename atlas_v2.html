@@ -631,6 +631,14 @@ const GEOJSON_DEPTS = "https://raw.githubusercontent.com/gregoiredavid/france-ge
 // Régions du commercial (en MAJUSCULES car c'est le format de ton Sheet)
 const MES_REGIONS = ['BRETAGNE', 'NORMANDIE', 'HAUTS-DE-FRANCE', 'GRAND EST'];
 
+// Codes INSEE des départements de chacune de mes 4 régions (pour le drill-down Pilotage)
+const REGION_DEPT_CODES = {
+  'BRETAGNE': ['22', '29', '35', '56'],
+  'NORMANDIE': ['14', '27', '50', '61', '76'],
+  'HAUTS-DE-FRANCE': ['02', '59', '60', '62', '80'],
+  'GRAND EST': ['08', '10', '51', '52', '54', '55', '57', '67', '68', '88']
+};
+
 // Mapping : valeur Sheet (majuscules) → forme proper-case pour la carte officielle FR
 const REGION_PROPER = {
   'BRETAGNE': 'Bretagne',
@@ -672,7 +680,7 @@ const STATE = {
   selectionMode: false,
   sort: { field: 'ca', dir: 'desc' },
   geoData: { regions: null, depts: null },
-  dashScope: 'national', dashSelected: null
+  dashScope: 'national', dashSelected: null, dashRegionKey: null
 };
 
 // Init visibleStatuses
@@ -1350,24 +1358,33 @@ function renderDashMap() {
   // Stats par région ou dept
   const stats = {};
   STATE.rows.filter(r => r.statut === 'Client').forEach(r => {
-    const key = isNational ? normRegion(r.region) : normDept(r.dept);
+    const key = isNational ? normRegion(r.region) : deptCode(r.dept);
     if (!stats[key]) stats[key] = { n: 0, ca: 0, name: isNational ? (REGION_PROPER[r.region] || r.region) : r.dept };
     stats[key].n++;
     stats[key].ca += r.ca;
   });
 
   // Filter geographies for current scope
+  const regionCodes = !isNational ? REGION_DEPT_CODES[STATE.dashRegionKey] : null;
   const features = (isNational ? STATE.geoData.regions : STATE.geoData.depts).features.filter(f => {
     if (isNational) return true;
-    // Dept of selected region only
-    return stats[normFromGeo(f.properties.nom, false)] !== undefined;
+    if (regionCodes) return regionCodes.includes(f.properties.code);
+    // Région hors de mes 4 régions connues : on garde l'ancien repli (depts avec au moins un client)
+    return stats[f.properties.code] !== undefined;
   });
+
+  // Compléter les départements sans client (0 €) pour qu'ils s'affichent quand même sur la carte et le classement
+  if (!isNational) {
+    features.forEach(f => {
+      if (!stats[f.properties.code]) stats[f.properties.code] = { n: 0, ca: 0, name: f.properties.nom };
+    });
+  }
 
   const maxCA = Math.max(...Object.values(stats).map(s => s.ca), 1);
 
   const layer = L.geoJson({type: 'FeatureCollection', features}, {
     style: f => {
-      const k = normFromGeo(f.properties.nom, isNational);
+      const k = isNational ? normFromGeo(f.properties.nom, true) : f.properties.code;
       const s = stats[k];
       const isMine = isNational ? MES_REGIONS.includes(normRegion(f.properties.nom)) : true;
       return {
@@ -1376,7 +1393,7 @@ function renderDashMap() {
       };
     },
     onEachFeature: (f, l) => {
-      const k = normFromGeo(f.properties.nom, isNational);
+      const k = isNational ? normFromGeo(f.properties.nom, true) : f.properties.code;
       const s = stats[k];
       if (s && s.ca > 0) {
         const label = L.marker(l.getBounds().getCenter(), {
@@ -1436,12 +1453,14 @@ function colorScale(ratio, isMine) {
 function zoomToRegion(name, bounds) {
   STATE.dashScope = 'regional';
   STATE.dashSelected = name;
+  STATE.dashRegionKey = normRegion(name);
   STATE.dashMap.fitBounds(bounds, { padding: [40, 40] });
   renderDashMap();
 }
 function resetDashMap() {
   STATE.dashScope = 'national';
   STATE.dashSelected = null;
+  STATE.dashRegionKey = null;
   STATE.dashMap.setView([46.5, 2.5], 5);
   renderDashMap();
 }
@@ -1451,6 +1470,14 @@ function normRegion(s) {
   if (!s) return '';
   let c = s.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   return c.toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+// "35 - ILLE ET VILAINE" → "35" (code INSEE, pour matcher le geojson par code plutôt que par nom)
+function deptCode(s) {
+  if (!s) return '';
+  const c = s.toString().trim();
+  const code = c.includes(' - ') ? c.split(' - ')[0].trim() : c;
+  return code.length === 1 ? '0' + code : code;
 }
 
 // "35 - ILLE ET VILAINE" → "ILLE ET VILAINE"

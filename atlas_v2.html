@@ -117,6 +117,20 @@
   .tab-btn:hover { color: var(--ink); }
   .tab-btn.active { color: var(--ink); border-bottom-color: var(--accent); }
 
+  .side-tab-btn {
+    flex: 1;
+    padding: 8px 10px;
+    font-family: 'Fraunces', serif; font-weight: 600;
+    font-size: 12px; letter-spacing: 0.02em;
+    color: var(--slate);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s; cursor: pointer;
+  }
+  .side-tab-btn:hover { color: var(--ink); }
+  .side-tab-btn.active { color: var(--ink); border-bottom-color: var(--accent); }
+
   .pill {
     display: inline-flex; align-items: center; gap: 4px;
     padding: 2px 8px; font-size: 9px; font-weight: 700;
@@ -305,123 +319,129 @@
         </div>
       </div>
 
-      <div>
-        <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Localiser</div>
-        <div class="space-y-3">
-          <input id="address-input" type="text" placeholder="Adresse, ville, hôpital..." class="input-paper" onkeypress="if(event.key==='Enter') searchAddress()">
-          <button onclick="getUserLocation()" class="w-full py-2 text-[11px] font-semibold tracking-wide flex items-center justify-center gap-2" style="border: 1px solid var(--ink); background: var(--paper); color: var(--ink);">
-            ⊕ Ma position
+      <div class="flex gap-1" style="border-bottom: 1px solid var(--rule);">
+        <button class="side-tab-btn active" id="side-tab-contact" onclick="switchSideTab('contact')">Contact</button>
+        <button class="side-tab-btn" id="side-tab-tour" onclick="switchSideTab('tour')">Tournée</button>
+      </div>
+
+      <!-- ===== ONGLET CONTACT ===== -->
+      <div id="side-content-contact" class="space-y-6">
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Statuts visibles</div>
+          <div class="space-y-1.5" id="status-toggles">
+            <!-- Injecté par JS -->
+          </div>
+        </div>
+
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3 flex justify-between items-center" style="color: var(--slate)">
+            <span>Filtres</span>
+            <button onclick="resetFilters()" class="text-[9px] normal-case tracking-normal" style="color: var(--accent);">↺ reset</button>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Périmètre</label>
+              <select id="filter-region" class="input-paper" onchange="applyFilters()">
+                <option value="MES">Mes 4 régions</option>
+                <option value="ALL">France entière</option>
+                <option value="BRETAGNE">Bretagne</option>
+                <option value="NORMANDIE">Normandie</option>
+                <option value="HAUTS-DE-FRANCE">Hauts-de-France</option>
+                <option value="GRAND EST">Grand Est</option>
+                <option value="OTHER">Hors périmètre</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Département</label>
+              <select id="filter-dept" class="input-paper" onchange="applyFilters()">
+                <option value="ALL">Tous départements</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider mb-1 block" style="color: var(--slate)">Types d'établissements</label>
+              <div id="filter-types" class="multi-select"></div>
+            </div>
+
+            <div class="flex items-center justify-between text-xs pt-1">
+              <span class="font-semibold">Visites prévues uniquement</span>
+              <label class="toggle">
+                <input type="checkbox" id="filter-visite" onchange="applyFilters()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Vues rapides</div>
+          <button class="quick-view" data-view="visites" onclick="applyQuickView('visites')">
+            <span><span style="color: var(--blue);">📅</span> Avec visite prévue</span>
+            <span class="font-mono num-tab" id="qv-visites">—</span>
+          </button>
+          <button class="quick-view" data-view="topca" onclick="applyQuickView('topca')">
+            <span><span style="color: var(--accent);">★</span> Top 20 CA</span>
+            <span class="font-mono num-tab" id="qv-topca">—</span>
+          </button>
+          <button class="quick-view" data-view="pipeline" onclick="applyQuickView('pipeline')">
+            <span><span style="color: var(--purple);">▸</span> Pipeline chaud</span>
+            <span class="font-mono num-tab" id="qv-pipeline">—</span>
           </button>
         </div>
       </div>
 
-      <div>
-        <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Statuts visibles</div>
-        <div class="space-y-1.5" id="status-toggles">
-          <!-- Injecté par JS -->
+      <!-- ===== ONGLET TOURNÉE ===== -->
+      <div id="side-content-tour" class="space-y-6 hidden">
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Localiser</div>
+          <div class="space-y-3">
+            <input id="address-input" type="text" placeholder="Adresse, ville, hôpital..." class="input-paper" onkeypress="if(event.key==='Enter') searchAddress()">
+            <button onclick="getUserLocation()" class="w-full py-2 text-[11px] font-semibold tracking-wide flex items-center justify-center gap-2" style="border: 1px solid var(--ink); background: var(--paper); color: var(--ink);">
+              ⊕ Ma position
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div>
-        <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3 flex justify-between items-center" style="color: var(--slate)">
-          <span>Filtres</span>
-          <button onclick="resetFilters()" class="text-[9px] normal-case tracking-normal" style="color: var(--accent);">↺ reset</button>
-        </div>
-
-        <div class="space-y-3">
-          <div>
-            <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Périmètre</label>
-            <select id="filter-region" class="input-paper" onchange="applyFilters()">
-              <option value="MES">Mes 4 régions</option>
-              <option value="ALL">France entière</option>
-              <option value="BRETAGNE">Bretagne</option>
-              <option value="NORMANDIE">Normandie</option>
-              <option value="HAUTS-DE-FRANCE">Hauts-de-France</option>
-              <option value="GRAND EST">Grand Est</option>
-              <option value="OTHER">Hors périmètre</option>
-            </select>
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3 flex justify-between items-center" style="color: var(--slate)">
+            <span>Tournée</span>
+            <button id="reset-radius" onclick="clearRadius()" class="hidden text-[9px] normal-case" style="color: var(--accent);">✕ Annuler</button>
           </div>
-
-          <div>
-            <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Département</label>
-            <select id="filter-dept" class="input-paper" onchange="applyFilters()">
-              <option value="ALL">Tous départements</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="text-[9px] font-bold uppercase tracking-wider mb-1 block" style="color: var(--slate)">Types d'établissements</label>
-            <div id="filter-types" class="multi-select"></div>
-          </div>
-
-          <div>
-            <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Recherche</label>
-            <input id="filter-search" type="text" placeholder="Nom, ville..." class="input-paper" oninput="applyFilters()">
-          </div>
-
-          <div class="flex items-center justify-between text-xs pt-1">
-            <span class="font-semibold">Visites prévues uniquement</span>
+          <div class="flex items-center justify-between mb-3 text-xs">
+            <span class="font-semibold">Sélection libre</span>
             <label class="toggle">
-              <input type="checkbox" id="filter-visite" onchange="applyFilters()">
+              <input type="checkbox" id="selection-mode" onchange="toggleSelectionMode(this.checked)">
               <span class="toggle-slider"></span>
             </label>
           </div>
-        </div>
-      </div>
-
-      <div>
-        <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Vues rapides</div>
-        <button class="quick-view" data-view="visites" onclick="applyQuickView('visites')">
-          <span><span style="color: var(--blue);">📅</span> Avec visite prévue</span>
-          <span class="font-mono num-tab" id="qv-visites">—</span>
-        </button>
-        <button class="quick-view" data-view="topca" onclick="applyQuickView('topca')">
-          <span><span style="color: var(--accent);">★</span> Top 20 CA</span>
-          <span class="font-mono num-tab" id="qv-topca">—</span>
-        </button>
-        <button class="quick-view" data-view="pipeline" onclick="applyQuickView('pipeline')">
-          <span><span style="color: var(--purple);">▸</span> Pipeline chaud</span>
-          <span class="font-mono num-tab" id="qv-pipeline">—</span>
-        </button>
-      </div>
-
-      <div>
-        <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3 flex justify-between items-center" style="color: var(--slate)">
-          <span>Tournée</span>
-          <button id="reset-radius" onclick="clearRadius()" class="hidden text-[9px] normal-case" style="color: var(--accent);">✕ Annuler</button>
-        </div>
-        <div class="flex items-center justify-between mb-3 text-xs">
-          <span class="font-semibold">Sélection libre</span>
-          <label class="toggle">
-            <input type="checkbox" id="selection-mode" onchange="toggleSelectionMode(this.checked)">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div id="radius-block" class="space-y-2 opacity-50 pointer-events-none">
-          <input type="range" min="5" max="150" step="5" value="30" class="slider-paper" id="radius-slider" oninput="updateRadius(this.value)">
-          <div class="flex justify-between font-mono text-[10px]">
-            <span style="color: var(--slate)">5 km</span>
-            <span class="font-bold num-tab" id="radius-display">30 km</span>
-            <span style="color: var(--slate)">150 km</span>
-          </div>
-        </div>
-
-        <div class="mt-4 pt-4" style="border-top: 1px dashed var(--rule);">
-          <div class="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Jours</label>
-              <input id="tour-days" type="number" min="1" max="10" value="1" class="input-paper">
-            </div>
-            <div>
-              <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Visites / jour</label>
-              <input id="tour-perday" type="number" min="1" max="20" value="10" class="input-paper">
+          <div id="radius-block" class="space-y-2 opacity-50 pointer-events-none">
+            <input type="range" min="5" max="150" step="5" value="30" class="slider-paper" id="radius-slider" oninput="updateRadius(this.value)">
+            <div class="flex justify-between font-mono text-[10px]">
+              <span style="color: var(--slate)">5 km</span>
+              <span class="font-bold num-tab" id="radius-display">30 km</span>
+              <span style="color: var(--slate)">150 km</span>
             </div>
           </div>
-          <button onclick="planTour()" class="w-full py-2.5 text-xs font-semibold uppercase tracking-[0.15em] flex items-center justify-center gap-2" style="background: var(--accent); color: var(--paper);">
-            ⟲ Optimiser la tournée
-          </button>
-          <div class="text-[9px] mt-2" style="color: var(--slate);">Départ : adresse recherchée ou « Ma position » ci-dessus.</div>
-          <div id="tour-summary" class="hidden mt-2 text-[10px] font-mono text-center py-1.5" style="color: var(--ink); background: var(--paper-warm); border: 1px solid var(--rule);"></div>
+
+          <div class="mt-4 pt-4" style="border-top: 1px dashed var(--rule);">
+            <div class="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Jours</label>
+                <input id="tour-days" type="number" min="1" max="10" value="1" class="input-paper">
+              </div>
+              <div>
+                <label class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--slate)">Visites / jour</label>
+                <input id="tour-perday" type="number" min="1" max="20" value="10" class="input-paper">
+              </div>
+            </div>
+            <button onclick="planTour()" class="w-full py-2.5 text-xs font-semibold uppercase tracking-[0.15em] flex items-center justify-center gap-2" style="background: var(--accent); color: var(--paper);">
+              ⟲ Optimiser la tournée
+            </button>
+            <div class="text-[9px] mt-2" style="color: var(--slate);">Départ : adresse recherchée ou « Ma position » ci-dessus.</div>
+            <div id="tour-summary" class="hidden mt-2 text-[10px] font-mono text-center py-1.5" style="color: var(--ink); background: var(--paper-warm); border: 1px solid var(--rule);"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -437,6 +457,7 @@
         <button class="tab-btn" id="tab-stats" onclick="switchTab('stats')">Pilotage</button>
       </div>
       <div class="flex items-center gap-3 text-[10px] font-mono" style="color: var(--slate)">
+        <button id="show-table-btn" onclick="showTablePanel()" class="hidden uppercase tracking-wider font-semibold py-1 px-2" style="background: var(--ink); color: var(--paper); font-family: 'Manrope', sans-serif;">▴ Afficher le tableau</button>
         <span id="visible-count" class="hidden md:inline">—</span>
       </div>
     </header>
@@ -487,8 +508,9 @@
         </div>
       </div>
 
-      <div class="border-t" style="border-color: var(--ink); background: var(--paper); height: 200px;">
-        <div class="px-4 md:px-6 py-2 flex justify-between items-center" style="background: var(--paper-warm); border-bottom: 1px solid var(--rule);">
+      <div id="table-panel" class="border-t flex flex-col" style="border-color: var(--ink); background: var(--paper); height: 200px;">
+        <div id="table-resize-handle" class="shrink-0" style="height: 6px; cursor: row-resize; background: var(--rule);" title="Glisser pour redimensionner"></div>
+        <div class="px-4 md:px-6 py-2 flex justify-between items-center shrink-0" style="background: var(--paper-warm); border-bottom: 1px solid var(--rule);">
           <div class="text-[10px] uppercase tracking-[0.2em] font-bold" style="color: var(--slate)">
             <span id="table-title">Sélection</span> · <span id="table-count">0</span>
           </div>
@@ -497,9 +519,12 @@
             <button onclick="exportCSV()" class="text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1" style="color: var(--accent);">
               ↓ Export tournée
             </button>
+            <button id="hide-table-btn" onclick="hideTablePanel()" class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--ink);" title="Cacher le tableau">
+              ▾ Cacher
+            </button>
           </div>
         </div>
-        <div class="overflow-auto" style="height: calc(100% - 33px);">
+        <div id="table-scroll" class="overflow-auto flex-1" style="min-height: 0;">
           <table class="w-full text-left">
             <thead class="sticky top-0 z-10" style="background: var(--paper);">
               <tr class="text-[9px] uppercase tracking-wider" style="color: var(--slate); border-bottom: 1px solid var(--ink);">
@@ -671,7 +696,7 @@ const STATE = {
   filtered: [],      // après filtres
   visibleStatuses: {}, // statut → bool
   selectedTypes: new Set(),
-  filters: { region: 'MES', dept: 'ALL', search: '', visite: false },
+  filters: { region: 'MES', dept: 'ALL', visite: false },
   quickView: null,
   map: null, dashMap: null,
   markersLayer: null, dashLayer: null, labelsLayer: null,
@@ -845,7 +870,6 @@ function applyFilters() {
   const f = STATE.filters;
   f.region = document.getElementById('filter-region').value;
   f.dept = document.getElementById('filter-dept').value;
-  f.search = document.getElementById('filter-search').value.toLowerCase().trim();
   f.visite = document.getElementById('filter-visite').checked;
 
   STATE.filtered = STATE.rows.filter(r => {
@@ -866,12 +890,6 @@ function applyFilters() {
 
     // Types
     if (STATE.selectedTypes.size > 0 && !STATE.selectedTypes.has(r.type)) return false;
-
-    // Recherche
-    if (f.search) {
-      const hay = (r.nom + ' ' + r.ville + ' ' + r.referent).toLowerCase();
-      if (!hay.includes(f.search)) return false;
-    }
 
     // Visite
     if (f.visite && !r.visite) return false;
@@ -913,7 +931,6 @@ function applyFilters() {
 function resetFilters() {
   document.getElementById('filter-region').value = 'MES';
   document.getElementById('filter-dept').value = 'ALL';
-  document.getElementById('filter-search').value = '';
   document.getElementById('filter-visite').checked = false;
   STATE.selectedTypes.clear();
   document.querySelectorAll('#filter-types input').forEach(c => c.checked = false);
@@ -1623,6 +1640,65 @@ function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('overlay').classList.toggle('visible');
 }
+
+function switchSideTab(tab) {
+  document.getElementById('side-content-contact').classList.toggle('hidden', tab !== 'contact');
+  document.getElementById('side-content-tour').classList.toggle('hidden', tab !== 'tour');
+  document.getElementById('side-tab-contact').classList.toggle('active', tab === 'contact');
+  document.getElementById('side-tab-tour').classList.toggle('active', tab === 'tour');
+}
+
+// ---- TABLE PANEL : hauteur variable + masquage --------------------------
+STATE.tablePanel = { lastHeight: 200 };
+
+function hideTablePanel() {
+  const panel = document.getElementById('table-panel');
+  STATE.tablePanel.lastHeight = panel.getBoundingClientRect().height;
+  panel.style.display = 'none';
+  document.getElementById('show-table-btn').classList.remove('hidden');
+  setTimeout(() => STATE.map.invalidateSize(), 50);
+}
+
+function showTablePanel() {
+  const panel = document.getElementById('table-panel');
+  panel.style.display = 'flex';
+  panel.style.height = STATE.tablePanel.lastHeight + 'px';
+  document.getElementById('show-table-btn').classList.add('hidden');
+  setTimeout(() => STATE.map.invalidateSize(), 50);
+}
+
+(function initTableResize() {
+  const handle = document.getElementById('table-resize-handle');
+  const panel = document.getElementById('table-panel');
+  if (!handle || !panel) return;
+
+  function startDrag(startClientY) {
+    const startHeight = panel.getBoundingClientRect().height;
+    function onMove(clientY) {
+      const delta = startClientY - clientY; // glisser vers le haut = agrandir
+      const maxH = window.innerHeight * 0.75;
+      const newHeight = Math.max(48, Math.min(maxH, startHeight + delta));
+      panel.style.height = newHeight + 'px';
+      STATE.map.invalidateSize();
+    }
+    function onMouseMove(e) { onMove(e.clientY); }
+    function onTouchMove(e) { if (e.touches[0]) { onMove(e.touches[0].clientY); e.preventDefault(); } }
+    function stop() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', stop);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', stop);
+      STATE.tablePanel.lastHeight = panel.getBoundingClientRect().height;
+    }
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', stop);
+  }
+
+  handle.addEventListener('mousedown', (e) => { e.preventDefault(); startDrag(e.clientY); });
+  handle.addEventListener('touchstart', (e) => { if (e.touches[0]) startDrag(e.touches[0].clientY); }, { passive: true });
+})();
 
 // ---- HELPERS -----------------------------------------------------------
 function escapeHtml(s) {

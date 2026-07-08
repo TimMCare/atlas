@@ -334,6 +334,20 @@
         </div>
 
         <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-[9px] uppercase tracking-[0.2em] font-bold" style="color: var(--slate)">Dernier contact</span>
+            <label class="toggle" title="Basculer la couleur des marqueurs">
+              <input type="checkbox" id="color-mode-toggle" onchange="toggleColorMode(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="text-[9px] mb-2" style="color: var(--slate);">Le switch colore la carte par dernier contact (au lieu du statut)</div>
+          <div class="space-y-1.5" id="recency-toggles">
+            <!-- Injecté par JS -->
+          </div>
+        </div>
+
+        <div>
           <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3 flex justify-between items-center" style="color: var(--slate)">
             <span>Filtres</span>
             <button onclick="resetFilters()" class="text-[9px] normal-case tracking-normal" style="color: var(--accent);">↺ reset</button>
@@ -532,7 +546,7 @@
                 <th class="px-4 py-2 sortable" onclick="sortTable('ville')">Ville</th>
                 <th class="px-4 py-2 sortable" onclick="sortTable('type')">Type</th>
                 <th class="px-4 py-2 sortable" onclick="sortTable('statut')">Statut</th>
-                <th class="px-4 py-2">Référent</th>
+                <th class="px-4 py-2 sortable" onclick="sortTable('dernierContactTs')">Dernier contact</th>
                 <th class="px-4 py-2 sortable text-right" onclick="sortTable('ca')">CA</th>
                 <th class="px-4 py-2 text-center">Jour</th>
                 <th class="px-4 py-2 text-right">+ km</th>
@@ -690,11 +704,50 @@ const STATUS_CONFIG = {
   'Refusé':       { color: '#b8341c', label: 'Refusés',     defaultOn: false, pillClass: 'pill-red' }
 };
 
+// Tranches de récence du dernier contact (appel / réunion)
+const RECENCY_BUCKETS = [
+  { key: 'lt1m',  label: '< 1 mois',         color: '#2d6b3a', maxDays: 30 },
+  { key: '1to3m', label: '1 à 3 mois',       color: '#d1a123', maxDays: 90 },
+  { key: '3to6m', label: '3 à 6 mois',       color: '#c8641f', maxDays: 180 },
+  { key: 'gt6m',  label: '> 6 mois',         color: '#b8341c', maxDays: Infinity },
+  { key: 'never', label: 'Jamais contacté',  color: '#111418', maxDays: null }
+];
+
+function getRecencyBucket(row) {
+  if (row.statut !== 'Client') return null; // uniquement pertinent pour les clients
+  if (!row.dernierContact) return RECENCY_BUCKETS[4];
+  const days = (Date.now() - row.dernierContact.getTime()) / 86400000;
+  if (days <= 30) return RECENCY_BUCKETS[0];
+  if (days <= 90) return RECENCY_BUCKETS[1];
+  if (days <= 180) return RECENCY_BUCKETS[2];
+  return RECENCY_BUCKETS[3];
+}
+
+function parseFrDate(s) {
+  if (!s) return null;
+  s = s.toString().trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 // ---- STATE -------------------------------------------------------------
 const STATE = {
   rows: [],          // toutes les lignes du Sheet
   filtered: [],      // après filtres
   visibleStatuses: {}, // statut → bool
+  visibleRecency: {},  // tranche de récence → bool
+  colorMode: 'statut', // 'statut' | 'recence' — coloration des marqueurs
   selectedTypes: new Set(),
   filters: { region: 'MES', dept: 'ALL', visite: false },
   quickView: null,
@@ -710,6 +763,8 @@ const STATE = {
 
 // Init visibleStatuses
 Object.entries(STATUS_CONFIG).forEach(([s, cfg]) => STATE.visibleStatuses[s] = cfg.defaultOn);
+// Init visibleRecency (toutes les tranches visibles par défaut)
+RECENCY_BUCKETS.forEach(b => STATE.visibleRecency[b.key] = true);
 
 // ---- BOOT --------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
@@ -717,6 +772,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initMap();
   buildLegend();
   buildStatusToggles();
+  buildRecencyToggles();
   setStatus("Synchronisation Google Sheet…");
   await loadSheet();
   setStatus("Chargement géographie…");
@@ -754,9 +810,60 @@ function initMap() {
 // ---- LEGEND & STATUS TOGGLES -------------------------------------------
 function buildLegend() {
   const legendEl = document.getElementById('legend-items');
-  legendEl.innerHTML = Object.entries(STATUS_CONFIG).map(([s, cfg]) => `
-    <div class="flex items-center gap-2"><span class="marker-dot" style="background: ${cfg.color}; position: relative;"></span><span>${cfg.label}</span></div>
+  if (STATE.colorMode === 'recence') {
+    legendEl.innerHTML = RECENCY_BUCKETS.map(b => `
+      <div class="flex items-center gap-2"><span class="marker-dot" style="background: ${b.color}; position: relative;"></span><span>${b.label}</span></div>
+    `).join('');
+  } else {
+    legendEl.innerHTML = Object.entries(STATUS_CONFIG).map(([s, cfg]) => `
+      <div class="flex items-center gap-2"><span class="marker-dot" style="background: ${cfg.color}; position: relative;"></span><span>${cfg.label}</span></div>
+    `).join('');
+  }
+}
+
+function buildRecencyToggles() {
+  const el = document.getElementById('recency-toggles');
+  if (!el) return;
+  el.innerHTML = RECENCY_BUCKETS.map(b => `
+    <div class="layer-toggle ${STATE.visibleRecency[b.key] ? '' : 'off'}" data-recency="${b.key}" onclick="toggleRecency('${b.key}')">
+      <span class="flex items-center gap-2">
+        <span class="layer-dot" style="background: ${b.color};"></span>
+        <span class="text-xs font-semibold">${b.label}</span>
+      </span>
+      <span class="font-mono text-[10px] num-tab" id="rcount-${b.key}">—</span>
+    </div>
   `).join('');
+}
+
+function toggleRecency(key) {
+  STATE.visibleRecency[key] = !STATE.visibleRecency[key];
+  document.querySelectorAll('[data-recency]').forEach(t => {
+    t.classList.toggle('off', !STATE.visibleRecency[t.dataset.recency]);
+  });
+  applyFilters();
+}
+
+function toggleColorMode(checked) {
+  STATE.colorMode = checked ? 'recence' : 'statut';
+  buildLegend();
+  renderMarkers();
+}
+
+function renderRecencyCounts() {
+  const counts = {};
+  RECENCY_BUCKETS.forEach(b => counts[b.key] = 0);
+  const f = STATE.filters;
+  STATE.rows.forEach(r => {
+    if (r.statut !== 'Client') return;
+    if (f.region === 'MES' && !MES_REGIONS.includes(r.region)) return;
+    if (f.region === 'OTHER' && MES_REGIONS.includes(r.region)) return;
+    if (f.region !== 'MES' && f.region !== 'OTHER' && f.region !== 'ALL' && r.region !== f.region) return;
+    counts[getRecencyBucket(r).key]++;
+  });
+  Object.entries(counts).forEach(([k, n]) => {
+    const el = document.getElementById('rcount-' + k);
+    if (el) el.textContent = n;
+  });
 }
 
 function buildStatusToggles() {
@@ -805,10 +912,9 @@ function loadSheet() {
             cp: (row["CP"] || "").toString().trim(),
             dept: (row["Département"] || "").trim(),
             region: (row["Région"] || "").trim(),
-            referent: (row["Nom du référent"] || "").trim(),
-            mail: (row["Mail"] || "").trim(),
+            dernierContact: parseFrDate(row["Dernier contact"]),
+            get dernierContactTs() { return this.dernierContact ? this.dernierContact.getTime() : -Infinity; },
             visite: (row["Visite prévue"] || "").trim(),
-            hubspot: (row["Lien HubSpot"] || "").trim(),
             services: (row["Services"] || "").trim(),
             doublon: (row["Vérification Doublon"] || "").trim()
           };
@@ -894,6 +1000,9 @@ function applyFilters() {
     // Visite
     if (f.visite && !r.visite) return false;
 
+    // Dernier contact (tranche de récence) — uniquement pour les Clients
+    if (r.statut === 'Client' && !STATE.visibleRecency[getRecencyBucket(r).key]) return false;
+
     // Quick views
     if (STATE.quickView === 'visites' && !r.visite) return false;
     if (STATE.quickView === 'pipeline' && !['Devis envoyé','Discussion'].includes(r.statut)) return false;
@@ -925,6 +1034,7 @@ function applyFilters() {
   renderTable();
   renderKPIs();
   renderStatusCounts();
+  renderRecencyCounts();
   renderQuickViewCounts();
 }
 
@@ -934,6 +1044,8 @@ function resetFilters() {
   document.getElementById('filter-visite').checked = false;
   STATE.selectedTypes.clear();
   document.querySelectorAll('#filter-types input').forEach(c => c.checked = false);
+  RECENCY_BUCKETS.forEach(b => STATE.visibleRecency[b.key] = true);
+  document.querySelectorAll('[data-recency]').forEach(t => t.classList.remove('off'));
   STATE.quickView = null;
   document.querySelectorAll('.quick-view').forEach(b => b.classList.remove('active'));
   applyFilters();
@@ -997,7 +1109,9 @@ function renderMarkers() {
 
   Object.values(groups).forEach(group => {
     const main = group[0];
-    const cfg = STATUS_CONFIG[main.statut] || { color: '#9aa1ab' };
+    const cfg = STATE.colorMode === 'recence'
+      ? (getRecencyBucket(main) || STATUS_CONFIG[main.statut] || { color: '#9aa1ab' })
+      : (STATUS_CONFIG[main.statut] || { color: '#9aa1ab' });
     const html = group.length > 1
       ? `<div class="marker-cluster" style="width: 22px; height: 22px;">${group.length}</div>`
       : `<div class="marker-dot" style="background: ${cfg.color};"></div>`;
@@ -1016,6 +1130,7 @@ function renderMarkers() {
 function buildPopup(group) {
   return group.map((r, idx) => {
     const cfg = STATUS_CONFIG[r.statut] || {};
+    const rec = getRecencyBucket(r); // null si pas Client
     const sep = idx > 0 ? '<div style="height: 1px; background: var(--rule); margin: 14px 0;"></div>' : '';
     return sep + `
       <div style="background: var(--ink); color: var(--paper); padding: 12px 16px;">
@@ -1023,7 +1138,8 @@ function buildPopup(group) {
           <span class="pill ${cfg.pillClass||''}">${escapeHtml(r.statut)}</span>
           ${r.visite ? `<span class="pill pill-blue">📅 ${escapeHtml(r.visite)}</span>` : ''}
         </div>
-        <div class="font-display font-bold text-base mt-1.5 leading-tight">${escapeHtml(r.nom)}</div>
+        <div class="font-mono text-[9px] mt-2" style="color: var(--slate-soft);">ID ${escapeHtml(r.id)}</div>
+        <div class="font-display font-bold text-base mt-0.5 leading-tight">${escapeHtml(r.nom)}</div>
         <div class="text-[11px] mt-0.5" style="color: var(--slate-soft);">
           ${escapeHtml(r.type)} · ${escapeHtml(r.ville)} · ${escapeHtml(REGION_PROPER[r.region] || r.region)}
         </div>
@@ -1035,10 +1151,11 @@ function buildPopup(group) {
           <div class="font-display font-bold text-2xl num-tab">${Math.round(r.ca).toLocaleString('fr-FR')} €</div>
         </div>` : ''}
 
-        ${r.referent ? `
-        <div class="text-[11px] mb-3">
-          <div class="font-semibold">${escapeHtml(r.referent)}</div>
-          ${r.mail ? `<div style="color: var(--slate);"><a href="mailto:${escapeHtml(r.mail)}" style="color: var(--accent);">${escapeHtml(r.mail)}</a></div>` : ''}
+        ${rec ? `
+        <div class="text-[11px] mb-3 flex items-center gap-2">
+          <span style="width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: ${rec.color};"></span>
+          <span class="font-semibold">Dernier contact :</span>
+          <span style="color: var(--slate);">${r.dernierContact ? r.dernierContact.toLocaleDateString('fr-FR') : 'jamais'} <span class="text-[9px]">(${rec.label})</span></span>
         </div>` : ''}
 
         ${r.adresse ? `
@@ -1051,10 +1168,8 @@ function buildPopup(group) {
           <span style="color: var(--ink-soft);">${escapeHtml(r.services)}</span>
         </div>` : ''}
 
-        <div class="grid grid-cols-2 gap-2 mt-3">
-          <a href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lon}" target="_blank" class="text-[10px] uppercase tracking-wider font-semibold py-2 text-center" style="background: var(--ink); color: var(--paper);">→ Itinéraire</a>
-          ${r.hubspot ? `<a href="${escapeHtml(r.hubspot)}" target="_blank" class="text-[10px] uppercase tracking-wider font-semibold py-2 text-center" style="border: 1px solid var(--ink); color: var(--ink);">↗ HubSpot</a>` :
-            `<span class="text-[10px] uppercase tracking-wider font-semibold py-2 text-center" style="border: 1px solid var(--rule); color: var(--slate);">— pas de HubSpot</span>`}
+        <div class="mt-3">
+          <a href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lon}" target="_blank" class="block text-[10px] uppercase tracking-wider font-semibold py-2 text-center" style="background: var(--ink); color: var(--paper);">→ Itinéraire</a>
         </div>
       </div>`;
   }).join('');
@@ -1247,15 +1362,19 @@ function renderTable() {
 
   body.innerHTML = sorted.slice(0, 200).map(r => {
     const cfg = STATUS_CONFIG[r.statut] || {};
+    const rec = getRecencyBucket(r); // null si pas Client
     const dayCell = isTour ? `#${r._order} · J${r._day}` : '—';
     const kmCell = isTour ? `+${r._distFromPrev.toFixed(1)} km` : '—';
+    const contactCell = rec
+      ? `<span style="width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: ${rec.color}; margin-right: 5px;"></span>${r.dernierContact ? r.dernierContact.toLocaleDateString('fr-FR') : 'jamais'}`
+      : '—';
     return `
       <tr class="row-clickable" data-id="${escapeHtml(r.id)}" style="border-bottom: 1px solid var(--rule);" onclick="zoomToMarker('${escapeHtml(r.id)}', ${r.lat}, ${r.lon})">
         <td class="px-4 py-2 font-semibold">${escapeHtml(r.nom)}</td>
         <td class="px-4 py-2 text-slate-600">${escapeHtml(r.ville)}</td>
         <td class="px-4 py-2 text-slate-500 text-[10px] uppercase">${escapeHtml(r.type)}</td>
         <td class="px-4 py-2"><span class="pill ${cfg.pillClass||''}">${escapeHtml(r.statut)}</span></td>
-        <td class="px-4 py-2 text-slate-500">${escapeHtml(r.referent || '—')}</td>
+        <td class="px-4 py-2 text-slate-500 text-[11px]">${contactCell}</td>
         <td class="px-4 py-2 text-right font-mono num-tab">${r.ca > 0 ? Math.round(r.ca).toLocaleString('fr-FR') + ' €' : '—'}</td>
         <td class="px-4 py-2 text-center font-mono num-tab text-[10px]">${dayCell}</td>
         <td class="px-4 py-2 text-right font-mono num-tab text-[10px]">${kmCell}</td>
@@ -1601,17 +1720,19 @@ function exportCSV() {
   function q(s) { return `"${(s||'').replace(/"/g, '""')}"`; }
 
   const headers = isTour
-    ? ['Ordre','Jour','ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Référent','Mail','Adresse','Visite','HubSpot','Distance étape (km)']
-    : ['ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Référent','Mail','Adresse','Visite','HubSpot'];
+    ? ['Ordre','Jour','ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Dernier contact','Adresse','Visite','Distance étape (km)']
+    : ['ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Dernier contact','Adresse','Visite'];
+
+  const fmtDate = r => r.dernierContact ? r.dernierContact.toLocaleDateString('fr-FR') : '';
 
   const rows = source.map(r => isTour ? [
     r._order, r._day, r.id, q(r.nom), r.statut, q(r.type), Math.round(r.ca),
     q(r.ville), r.cp, q(r.dept), q(r.region),
-    q(r.referent), q(r.mail), q(r.adresse), q(r.visite), q(r.hubspot), r._distFromPrev.toFixed(1)
+    q(fmtDate(r)), q(r.adresse), q(r.visite), r._distFromPrev.toFixed(1)
   ] : [
     r.id, q(r.nom), r.statut, q(r.type), Math.round(r.ca),
     q(r.ville), r.cp, q(r.dept), q(r.region),
-    q(r.referent), q(r.mail), q(r.adresse), q(r.visite), q(r.hubspot)
+    q(fmtDate(r)), q(r.adresse), q(r.visite)
   ]);
 
   const csv = '\uFEFF' + [headers, ...rows].map(r => r.join(',')).join('\n');

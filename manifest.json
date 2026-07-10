@@ -1,0 +1,11 @@
+{
+  "name": "Atlas — Sales Mapper",
+  "short_name": "Atlas",
+  "start_url": "./atlas_v3.html",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#3D7CC9",
+  "icons": [
+    { "src": "atlas-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

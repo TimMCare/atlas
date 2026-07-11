@@ -140,15 +140,18 @@
   .side-tab-btn.active { color: var(--paper); background: var(--blue); }
 
   .btn-primary {
-    background: var(--blue); color: var(--paper);
+    background: var(--blue); color: var(--paper) !important;
+    text-decoration: none !important;
     border-radius: 999px;
     box-shadow: var(--shadow-sm);
     transition: background 0.15s, transform 0.1s;
   }
+  .btn-primary:hover, .btn-primary:visited, .btn-primary:active { color: var(--paper) !important; }
   .btn-primary:hover { background: var(--blue-deep); }
   .btn-primary:active { transform: scale(0.98); }
   .btn-soft {
-    background: var(--blue-soft); color: var(--paper);
+    background: var(--blue-soft); color: var(--paper) !important;
+    text-decoration: none !important;
     border-radius: 999px;
     box-shadow: var(--shadow-sm);
     transition: background 0.15s, transform 0.1s;
@@ -293,6 +296,39 @@
     }
     #sidebar.open { left: 0; }
     #overlay.visible { display: block !important; }
+
+    /* Header : la recherche passe sur sa propre ligne, le bouton Tableau reste visible */
+    #app-header {
+      height: auto !important;
+      flex-wrap: wrap;
+      row-gap: 8px;
+      padding-top: 10px; padding-bottom: 10px;
+    }
+    #search-wrap { order: 3; max-width: 100% !important; flex-basis: 100%; margin-left: 0 !important; }
+    #header-actions { order: 2; margin-left: auto; }
+
+    /* KPI : grille compacte au lieu du scroll horizontal */
+    #kpi-strip {
+      flex-wrap: wrap;
+      overflow-x: visible;
+      gap: 10px !important;
+      row-gap: 6px;
+    }
+    #kpi-strip .big-num { font-size: 1.05rem !important; }
+    #kpi-strip .stat-label { font-size: 8px; }
+
+    /* Légende : ne doit pas être coupée par la barre home iOS */
+    #content-map .absolute.bottom-4.left-4 {
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      max-height: 40vh;
+      overflow-y: auto;
+      font-size: 9px;
+    }
+
+    /* Pilotage sur mobile : carte + classement empilés, hauteurs réglables */
+    #content-stats { flex-direction: column; }
+    #content-stats > div:first-child { flex: 1 1 auto; min-height: 160px; }
+    #rank-panel { flex: 0 0 auto; height: 240px; max-height: 60vh; min-height: 110px; }
   }
 
   tr.row-clickable:hover { background: var(--sky); cursor: pointer; }
@@ -554,6 +590,7 @@
           </button>
           <div class="text-[9px] mt-2" style="color: var(--slate);">Distances à vol d'oiseau — compte ~+30% sur route.</div>
           <div id="tour-summary" class="hidden mt-2 text-[10px] font-mono text-center py-2 rounded-xl" style="color: var(--blue-deep); background: var(--sky); border: 1px solid var(--sky-2);"></div>
+          <div id="tour-gmaps-links" class="hidden"></div>
         </div>
       </div>
     </div>
@@ -561,7 +598,7 @@
 
   <!-- ============== MAIN ============== -->
   <main class="flex-1 flex flex-col overflow-hidden">
-    <header class="h-16 px-3 md:px-6 flex items-center gap-2 md:gap-4" style="background: var(--paper); border-bottom: 1px solid var(--line);">
+    <header id="app-header" class="h-16 px-3 md:px-6 flex items-center gap-2 md:gap-4 shrink-0" style="background: var(--paper); border-bottom: 1px solid var(--line);">
       <button id="mobile-toggle" onclick="toggleSidebar()" class="md:hidden p-2 text-xl" style="color: var(--blue-deep);">☰</button>
       <div class="flex items-center gap-1 shrink-0 p-1 rounded-full" style="background: var(--sky);">
         <button class="tab-btn active" id="tab-map" onclick="switchTab('map')">Carte</button>
@@ -573,14 +610,14 @@
                oninput="onGlobalSearch()" onkeydown="if(event.key==='Escape') hideSearchResults()">
         <div id="search-results" class="hidden"></div>
       </div>
-      <div class="flex items-center gap-3 text-[10px] font-mono shrink-0" style="color: var(--slate)">
+      <div id="header-actions" class="flex items-center gap-3 text-[10px] font-mono shrink-0" style="color: var(--slate)">
         <button id="show-table-btn" onclick="showTablePanel()" class="hidden btn-primary uppercase tracking-wider font-bold py-1.5 px-3 text-[10px]" style="font-family: 'Mulish', sans-serif;">▴ Tableau</button>
         <span id="visible-count" class="hidden md:inline">—</span>
       </div>
     </header>
 
     <!-- KPI strip -->
-    <div class="px-4 md:px-6 py-3 flex items-end gap-5 md:gap-10 overflow-x-auto" style="background: var(--sky); border-bottom: 1px solid var(--line);">
+    <div id="kpi-strip" class="shrink-0 px-4 md:px-6 py-3 flex items-end gap-5 md:gap-10 overflow-x-auto" style="background: var(--sky); border-bottom: 1px solid var(--line);">
       <div class="shrink-0">
         <div class="stat-label">CA Clients (réalisé)</div>
         <div class="big-num text-2xl md:text-3xl num-tab" id="kpi-ca-clients" style="color: var(--green);">— €</div>
@@ -724,8 +761,8 @@
     </div>
 
     <!-- TAB STATS (Pilotage) -->
-    <div id="content-stats" class="hidden flex-1 flex flex-col md:flex-row gap-4 p-4 md:p-6" style="background: var(--sky);">
-      <div class="flex-1 relative card overflow-hidden">
+    <div id="content-stats" class="hidden flex-1 flex flex-col md:flex-row gap-4 p-4 md:p-6 min-h-0" style="background: var(--sky);">
+      <div class="flex-1 relative card overflow-hidden" style="min-height: 220px;">
         <div class="px-5 py-3 flex justify-between items-center" style="background: var(--paper); border-bottom: 1px solid var(--line);">
           <div>
             <div class="font-display text-base font-medium" id="dash-title">France · CA par région</div>
@@ -735,7 +772,8 @@
         </div>
         <div id="dash-map" style="height: calc(100% - 49px);"></div>
       </div>
-      <div class="md:w-[420px] overflow-hidden flex flex-col card">
+      <div id="rank-panel" class="md:w-[420px] overflow-hidden flex flex-col card">
+        <div id="rank-resize-handle" class="md:hidden shrink-0" style="height: 6px; width: 60px; cursor: row-resize; background: var(--sky-2); border-radius: 999px; margin: 8px auto 2px;" title="Glisser pour redimensionner"></div>
         <div class="px-5 py-3" style="background: var(--paper); border-bottom: 1px solid var(--line);">
           <div class="font-display text-base font-medium" id="rank-title">Classement</div>
           <div class="text-[10px]" style="color: var(--slate);">Trié par CA Clients (réalisé)</div>
@@ -1259,6 +1297,8 @@ function applyFilters() {
     document.getElementById('clear-tour')?.classList.add('hidden');
     document.getElementById('tour-summary')?.classList.add('hidden');
     document.getElementById('tour-stats')?.classList.add('hidden');
+    document.getElementById('tour-gmaps-links')?.classList.add('hidden');
+    if (document.getElementById('tour-gmaps-links')) document.getElementById('tour-gmaps-links').innerHTML = '';
   }
 
   renderMarkers();
@@ -1529,6 +1569,8 @@ function clearTour() {
   document.getElementById('clear-tour').classList.add('hidden');
   document.getElementById('tour-summary').classList.add('hidden');
   document.getElementById('tour-stats').classList.add('hidden');
+  document.getElementById('tour-gmaps-links').classList.add('hidden');
+  document.getElementById('tour-gmaps-links').innerHTML = '';
   renderMarkers();
   renderTable();
 }
@@ -1545,6 +1587,50 @@ function updateTourSummary() {
   el.textContent = `${STATE.tour.stops.length} visites · ${nDays} jour(s) · ${Math.round(totalKm)} km`
     + (STATE.tour.returnHome ? ` (retours au départ inclus)` : '');
   el.classList.remove('hidden');
+  renderTourGmapsLinks();
+}
+
+// Google Maps limite un itinéraire à ~10 étapes (départ + arrivée + waypoints).
+// Au-delà, le lien est généré quand même mais peut être tronqué par Google.
+const GMAPS_MAX_STOPS = 10;
+
+function buildGmapsUrl(start, stops, returnHome) {
+  const origin = `${start.lat},${start.lon}`;
+  const destination = returnHome ? origin : `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
+  const waypointStops = returnHome ? stops : stops.slice(0, -1);
+  const params = new URLSearchParams({
+    api: '1', origin, destination, travelmode: 'driving'
+  });
+  if (waypointStops.length > 0) {
+    params.set('waypoints', waypointStops.map(r => `${r.lat},${r.lon}`).join('|'));
+  }
+  return 'https://www.google.com/maps/dir/?' + params.toString();
+}
+
+function renderTourGmapsLinks() {
+  const container = document.getElementById('tour-gmaps-links');
+  if (!container) return;
+  if (!STATE.tour.active || !STATE.radius.center) { container.innerHTML = ''; container.classList.add('hidden'); return; }
+
+  const byDay = {};
+  STATE.tour.stops.forEach(r => { (byDay[r._day] = byDay[r._day] || []).push(r); });
+  const start = STATE.radius.center;
+
+  const html = Object.keys(byDay).map(Number).sort((a, b) => a - b).map(day => {
+    const stops = byDay[day];
+    const url = buildGmapsUrl(start, stops, STATE.tour.returnHome);
+    const nStops = stops.length + 1; // + départ (arrivée déjà comptée dans stops si pas retour)
+    const warn = nStops > GMAPS_MAX_STOPS
+      ? `<div class="text-[9px] mt-0.5" style="color: var(--red);">⚠ ${stops.length} visites : au-delà de ~${GMAPS_MAX_STOPS - 1} étapes, Google peut tronquer l'itinéraire.</div>`
+      : '';
+    return `
+      <a href="${url}" target="_blank" class="btn-outline w-full py-2 text-[11px] font-bold block text-center mt-2">
+        🗺️ Jour ${day} — ouvrir dans Google Maps (${stops.length} visites)
+      </a>${warn}`;
+  }).join('');
+
+  container.innerHTML = html;
+  container.classList.remove('hidden');
 }
 
 function renderTourMarkers() {
@@ -1774,6 +1860,8 @@ function renderDashMap() {
 
   const stats = {};
   STATE.rows.filter(r => r.statut === 'Client').forEach(r => {
+    // En vue régionale, on ne garde que les clients de la région sélectionnée
+    if (!isNational && normRegion(r.region) !== STATE.dashRegionKey) return;
     const key = isNational ? normRegion(r.region) : deptCode(r.dept);
     if (!stats[key]) stats[key] = { n: 0, ca: 0, name: isNational ? (REGION_PROPER[r.region] || r.region) : r.dept };
     stats[key].n++;
@@ -2076,6 +2164,39 @@ function showTablePanel() {
       document.removeEventListener('touchmove', onTouchMove);
       document.removeEventListener('touchend', stop);
       STATE.tablePanel.lastHeight = panel.getBoundingClientRect().height;
+    }
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', stop);
+  }
+
+  handle.addEventListener('mousedown', (e) => { e.preventDefault(); startDrag(e.clientY); });
+  handle.addEventListener('touchstart', (e) => { if (e.touches[0]) startDrag(e.touches[0].clientY); }, { passive: true });
+})();
+
+// ---- PILOTAGE MOBILE : panneau classement redimensionnable ----------------
+(function initRankResize() {
+  const handle = document.getElementById('rank-resize-handle');
+  const panel = document.getElementById('rank-panel');
+  if (!handle || !panel) return;
+
+  function startDrag(startClientY) {
+    const startHeight = panel.getBoundingClientRect().height;
+    function onMove(clientY) {
+      const delta = startClientY - clientY;
+      const maxH = window.innerHeight * 0.75;
+      const newHeight = Math.max(90, Math.min(maxH, startHeight + delta));
+      panel.style.height = newHeight + 'px';
+    }
+    function onMouseMove(e) { onMove(e.clientY); }
+    function onTouchMove(e) { if (e.touches[0]) { onMove(e.touches[0].clientY); e.preventDefault(); } }
+    function stop() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', stop);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', stop);
+      if (STATE.dashMap) setTimeout(() => STATE.dashMap.invalidateSize(), 50);
     }
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', stop);

@@ -47,6 +47,13 @@
     overflow: hidden;
   }
 
+  /* iOS Safari : 100vh compte la barre d'adresse et masque le bas de l'app.
+     100dvh (dynamic viewport height) s'ajuste au véritable espace visible. */
+  .h-screen { height: 100vh; }
+  @supports (height: 100dvh) {
+    .h-screen { height: 100dvh; }
+  }
+
   .font-display { font-family: 'Jost', 'Century Gothic', sans-serif; }
   .font-mono { font-family: 'JetBrains Mono', monospace; }
   .num-tab { font-variant-numeric: tabular-nums; }
@@ -297,17 +304,52 @@
     #sidebar.open { left: 0; }
     #overlay.visible { display: block !important; }
 
-    /* Header : la recherche passe sur sa propre ligne, le bouton Tableau reste visible */
-    #app-header {
-      height: auto !important;
-      flex-wrap: wrap;
-      row-gap: 8px;
-      padding-top: 10px; padding-bottom: 10px;
+    /* Sidebar : la zone scrollable ne doit pas finir sous la barre home iOS */
+    #sidebar > .flex-1.overflow-y-auto {
+      padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
     }
-    #search-wrap { order: 3; max-width: 100% !important; flex-basis: 100%; margin-left: 0 !important; }
-    #header-actions { order: 2; margin-left: auto; }
 
-    /* KPI : grille compacte au lieu du scroll horizontal */
+    /* Header : tout tient sur une seule ligne (onglets compacts, recherche en icône) */
+    #app-header {
+      flex-wrap: nowrap;
+      gap: 6px !important;
+    }
+    #header-tabs { padding: 3px; gap: 2px; }
+    #header-tabs .tab-btn { padding: 6px 9px; font-size: 11px; }
+
+    #search-wrap {
+      flex: 0 0 auto; max-width: none; margin-left: auto;
+      display: flex; align-items: center; justify-content: flex-end;
+      position: relative;
+    }
+    #search-wrap input#global-search { display: none; }
+    #search-icon-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: 999px; flex-shrink: 0;
+      background: var(--sky); border: none; font-size: 15px; color: var(--blue-deep);
+      cursor: pointer; padding: 0;
+    }
+    #search-close-btn { display: none; }
+
+    /* Mode recherche ouverte : la recherche prend toute la ligne, le reste se cache */
+    #app-header.search-open #mobile-toggle,
+    #app-header.search-open #header-tabs,
+    #app-header.search-open #header-actions { display: none !important; }
+    #app-header.search-open #search-wrap {
+      flex: 1 1 auto; max-width: none; justify-content: flex-start;
+    }
+    #app-header.search-open #search-icon-btn { display: none; }
+    #app-header.search-open input#global-search { display: block; flex: 1 1 auto; }
+    #app-header.search-open #search-close-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; flex-shrink: 0; margin-left: 6px;
+      background: var(--sky); border-radius: 999px; border: none;
+      font-size: 15px; color: var(--slate); cursor: pointer;
+    }
+
+    #header-actions #show-table-btn { padding: 6px 10px; font-size: 10px; }
+
+    /* KPI : grille compacte au lieu du scroll horizontal, libellés raccourcis */
     #kpi-strip {
       flex-wrap: wrap;
       overflow-x: visible;
@@ -325,10 +367,17 @@
       font-size: 9px;
     }
 
+    /* Tableau bas de carte : laisser de la place pour la barre home iOS */
+    #table-scroll { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+    /* Portefeuille : idem en bas de page scrollable */
+    #content-portfolio { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important; }
+
     /* Pilotage sur mobile : carte + classement empilés, hauteurs réglables */
-    #content-stats { flex-direction: column; }
+    #content-stats { flex-direction: column; padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
     #content-stats > div:first-child { flex: 1 1 auto; min-height: 160px; }
     #rank-panel { flex: 0 0 auto; height: 240px; max-height: 60vh; min-height: 110px; }
+    #rank-panel > .overflow-auto { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   }
 
   tr.row-clickable:hover { background: var(--sky); cursor: pointer; }
@@ -600,18 +649,22 @@
   <main class="flex-1 flex flex-col overflow-hidden">
     <header id="app-header" class="h-16 px-3 md:px-6 flex items-center gap-2 md:gap-4 shrink-0" style="background: var(--paper); border-bottom: 1px solid var(--line);">
       <button id="mobile-toggle" onclick="toggleSidebar()" class="md:hidden p-2 text-xl" style="color: var(--blue-deep);">☰</button>
-      <div class="flex items-center gap-1 shrink-0 p-1 rounded-full" style="background: var(--sky);">
+      <div id="header-tabs" class="flex items-center gap-1 shrink-0 p-1 rounded-full" style="background: var(--sky);">
         <button class="tab-btn active" id="tab-map" onclick="switchTab('map')">Carte</button>
         <button class="tab-btn" id="tab-portfolio" onclick="switchTab('portfolio')">Portefeuille</button>
         <button class="tab-btn" id="tab-stats" onclick="switchTab('stats')">Pilotage</button>
       </div>
       <div id="search-wrap" class="flex-1 min-w-0 max-w-md ml-auto">
+        <button id="search-icon-btn" class="md:hidden" onclick="toggleMobileSearch()" aria-label="Rechercher">🔍</button>
         <input id="global-search" type="text" placeholder="🔍 Établissement, ville, adresse..." class="input-round" autocomplete="off"
                oninput="onGlobalSearch()" onkeydown="if(event.key==='Escape') hideSearchResults()">
+        <button id="search-close-btn" class="md:hidden" onclick="closeMobileSearch()" aria-label="Fermer la recherche">✕</button>
         <div id="search-results" class="hidden"></div>
       </div>
       <div id="header-actions" class="flex items-center gap-3 text-[10px] font-mono shrink-0" style="color: var(--slate)">
-        <button id="show-table-btn" onclick="showTablePanel()" class="hidden btn-primary uppercase tracking-wider font-bold py-1.5 px-3 text-[10px]" style="font-family: 'Mulish', sans-serif;">▴ Tableau</button>
+        <button id="show-table-btn" onclick="showTablePanel()" class="hidden btn-primary uppercase tracking-wider font-bold py-1.5 px-3 text-[10px]" style="font-family: 'Mulish', sans-serif;">
+          <span class="md:hidden">▴ TABL</span><span class="hidden md:inline">▴ Tableau</span>
+        </button>
         <span id="visible-count" class="hidden md:inline">—</span>
       </div>
     </header>
@@ -619,11 +672,11 @@
     <!-- KPI strip -->
     <div id="kpi-strip" class="shrink-0 px-4 md:px-6 py-3 flex items-end gap-5 md:gap-10 overflow-x-auto" style="background: var(--sky); border-bottom: 1px solid var(--line);">
       <div class="shrink-0">
-        <div class="stat-label">CA Clients (réalisé)</div>
+        <div class="stat-label"><span class="md:hidden">CA Clients</span><span class="hidden md:inline">CA Clients (réalisé)</span></div>
         <div class="big-num text-2xl md:text-3xl num-tab" id="kpi-ca-clients" style="color: var(--green);">— €</div>
       </div>
       <div class="shrink-0">
-        <div class="stat-label">CA Pipeline (devis + discussion)</div>
+        <div class="stat-label"><span class="md:hidden">CA Pipeline</span><span class="hidden md:inline">CA Pipeline (devis + discussion)</span></div>
         <div class="big-num text-2xl md:text-3xl num-tab" id="kpi-ca-pipe" style="color: var(--blue);">— €</div>
       </div>
       <div style="width:1px; align-self: stretch; background: var(--line);" class="hidden md:block"></div>
@@ -1005,6 +1058,17 @@ function renderSearchResults() {
 
 function hideSearchResults() {
   document.getElementById('search-results').classList.add('hidden');
+}
+
+// Mobile : la recherche démarre en icône seule, s'ouvre en plein largeur au tap
+function toggleMobileSearch() {
+  document.getElementById('app-header').classList.add('search-open');
+  setTimeout(() => document.getElementById('global-search').focus(), 50);
+}
+function closeMobileSearch() {
+  document.getElementById('app-header').classList.remove('search-open');
+  hideSearchResults();
+  document.getElementById('global-search').value = '';
 }
 
 function showTempResult(row) {
@@ -1858,12 +1922,22 @@ function renderDashMap() {
 
   const isNational = STATE.dashScope === 'national';
 
+  // Nom affiché toujours au format "CODE - NOM" (comme dans le Sheet), qu'un
+  // département ait des clients ou non — évite le mélange de formats observé
+  // (le nom "brut" du GeoJSON n'était utilisé que pour les départements à 0 client).
+  const deptNameByCode = {};
+  if (!isNational && STATE.geoData.depts) {
+    STATE.geoData.depts.features.forEach(f => {
+      deptNameByCode[f.properties.code] = `${f.properties.code} - ${(f.properties.nom || '').toUpperCase()}`;
+    });
+  }
+
   const stats = {};
   STATE.rows.filter(r => r.statut === 'Client').forEach(r => {
     // En vue régionale, on ne garde que les clients de la région sélectionnée
     if (!isNational && normRegion(r.region) !== STATE.dashRegionKey) return;
     const key = isNational ? normRegion(r.region) : deptCode(r.dept);
-    if (!stats[key]) stats[key] = { n: 0, ca: 0, name: isNational ? (REGION_PROPER[r.region] || r.region) : r.dept };
+    if (!stats[key]) stats[key] = { n: 0, ca: 0, name: isNational ? (REGION_PROPER[r.region] || r.region) : (deptNameByCode[key] || r.dept) };
     stats[key].n++;
     stats[key].ca += r.ca;
   });
@@ -1877,7 +1951,7 @@ function renderDashMap() {
 
   if (!isNational) {
     features.forEach(f => {
-      if (!stats[f.properties.code]) stats[f.properties.code] = { n: 0, ca: 0, name: f.properties.nom };
+      if (!stats[f.properties.code]) stats[f.properties.code] = { n: 0, ca: 0, name: deptNameByCode[f.properties.code] || f.properties.nom };
     });
   }
 

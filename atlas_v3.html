@@ -74,6 +74,8 @@
     width: 14px; height: 14px;
   }
   .marker-dot:hover { transform: scale(1.3); }
+  /* Doublon prospect présumé : anneau orange autour du point */
+  .marker-dot.marker-dup { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber); }
   .marker-cluster {
     display: flex; align-items: center; justify-content: center;
     background: var(--blue-deep); color: var(--paper);
@@ -503,6 +505,13 @@
         <div>
           <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Statuts visibles</div>
           <div class="space-y-1.5" id="status-toggles"></div>
+          <div id="dup-toggle-wrap" class="items-center justify-between text-xs mt-2 px-3 py-2 rounded-xl" style="display: none; background: var(--sky);">
+            <span class="font-semibold" style="color: var(--slate);">Doublons prospects <span id="dup-count" class="font-mono"></span></span>
+            <label class="toggle" title="Afficher les prospects flaggés comme doublons">
+              <input type="checkbox" id="show-dups" onchange="toggleDups(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
         </div>
 
         <div>
@@ -939,6 +948,7 @@ const STATE = {
   visibleStatuses: {},
   visibleRecency: {},
   colorMode: 'statut',
+  showDups: false,
   selectedTypes: new Set(),
   filters: { region: 'MES', dept: 'ALL', visite: false },
   quickView: null,
@@ -1237,15 +1247,26 @@ function loadSheet() {
             get dernierContactTs() { return this.dernierContact ? this.dernierContact.getTime() : -Infinity; },
             visite: (row["Visite prévue"] || "").trim(),
             services: (row["Services"] || "").trim(),
-            doublon: (row["Vérification Doublon"] || "").trim()
+            doublon: (row["Vérification Doublon"] || "").trim(),
+            doublonDetails: (row["Détails Doublons"] || "").trim()
           };
         });
 
         STATE.rows = mapped.filter(r => {
           if (isNaN(r.lat) || isNaN(r.lon)) { noCoords++; return false; }
-          if (r.statut === 'Prospect' && r.doublon) { dupSkipped++; return false; }
           return true;
         });
+
+        // Doublons : le flag du Sheet n'est fiable que sur les Prospects (le script
+        // marque parfois de vrais clients à tort). On ne jette plus la ligne : on la
+        // marque. Elle reste masquée tant que le toggle « Doublons prospects » est off.
+        STATE.rows.forEach(r => { r.isDup = (r.statut === 'Prospect' && !!r.doublon); });
+        dupSkipped = STATE.rows.filter(r => r.isDup).length;
+
+        // Diagnostic : quelles valeurs prend réellement la colonne « Vérification Doublon » ?
+        const dupValues = {};
+        STATE.rows.forEach(r => { if (r.doublon) dupValues[r.doublon] = (dupValues[r.doublon] || 0) + 1; });
+        console.log('Valeurs distinctes de « Vérification Doublon » :', dupValues);
 
         STATE.health = {
           total: results.data.length,
@@ -1267,15 +1288,29 @@ function renderDataHealth() {
   const h = STATE.health;
   const el = document.getElementById('data-health');
   if (!el) return;
-  const parts = [`${h.kept} lignes chargées`];
+  const nb = h.kept - (STATE.showDups ? 0 : h.dupSkipped);
+  const parts = [`${nb} lignes chargées`];
   if (h.noCoords > 0) parts.push(`${h.noCoords} sans coordonnées`);
-  if (h.dupSkipped > 0) parts.push(`${h.dupSkipped} doublons prospects écartés`);
+  if (h.dupSkipped > 0) parts.push(`${h.dupSkipped} doublons prospects ${STATE.showDups ? 'affichés' : 'masqués'}`);
   el.textContent = parts.join(' · ');
   el.style.color = h.noCoords > 20 ? 'var(--amber)' : 'var(--slate)';
   if (h.badDates > 0) {
     el.innerHTML += `<br><span style="color: var(--red); font-weight: 700;">⚠ ${h.badDates} date(s) « Dernier contact » illisible(s) — vérifier le format HubSpot</span>`;
   }
-  el.title = `${h.total} lignes dans le CSV · ${h.kept} affichables · ${h.noCoords} sans lat/lon · ${h.dupSkipped} doublons prospects · ${h.badDates} dates non parsées (Clients)`;
+  el.title = `${h.total} lignes dans le CSV · ${h.kept} avec coordonnées · ${h.noCoords} sans lat/lon · ${h.dupSkipped} prospects flaggés doublon · ${h.badDates} dates non parsées (Clients)`;
+
+  const wrap = document.getElementById('dup-toggle-wrap');
+  if (wrap) {
+    wrap.style.display = h.dupSkipped > 0 ? 'flex' : 'none';
+    const c = document.getElementById('dup-count');
+    if (c) c.textContent = `(${h.dupSkipped})`;
+  }
+}
+
+function toggleDups(on) {
+  STATE.showDups = on;
+  renderDataHealth();
+  applyFilters();
 }
 
 async function loadGeoData() {
@@ -1300,13 +1335,67 @@ function populateFilters() {
     deptSel.appendChild(o);
   });
 
-  const types = new Set();
-  STATE.rows.forEach(r => { if (r.type && r.type !== 'Autre') types.add(r.type); });
+  renderTypeFilter();
+}
+
+// Prédicat commun à tous les filtres. `ignoreTypes` sert à compter les
+// établissements par type SANS tenir compte du filtre Type lui-même
+// (sinon cocher un type ferait tomber tous les autres compteurs à 0).
+function rowMatches(r, ignoreTypes) {
+  const f = STATE.filters;
+  if (!STATE.visibleStatuses[r.statut]) return false;
+  if (r.isDup && !STATE.showDups) return false;
+
+  if (f.region === 'MES') {
+    if (!MES_REGIONS.includes(r.region)) return false;
+  } else if (f.region === 'OTHER') {
+    if (MES_REGIONS.includes(r.region)) return false;
+  } else if (f.region !== 'ALL') {
+    if (r.region !== f.region) return false;
+  }
+
+  if (f.dept !== 'ALL' && r.dept !== f.dept) return false;
+  if (!ignoreTypes && STATE.selectedTypes.size > 0 && !STATE.selectedTypes.has(r.type)) return false;
+  if (f.visite && !r.visite) return false;
+  if (r.statut === 'Client' && !STATE.visibleRecency[getRecencyBucket(r).key]) return false;
+
+  if (STATE.quickView === 'visites' && !r.visite) return false;
+  if (STATE.quickView === 'pipeline' && !['Devis envoyé','Discussion'].includes(r.statut)) return false;
+
+  if (STATE.radius.center) {
+    const d = haversine(STATE.radius.center.lat, STATE.radius.center.lon, r.lat, r.lon);
+    if (d > STATE.radius.km) return false;
+  }
+  return true;
+}
+
+// La liste des types affichés = uniquement les types réellement présents dans
+// le périmètre courant (région, département, statuts visibles, rayon…), avec
+// le nombre d'établissements en face. Plus de types fantômes à 0.
+function renderTypeFilter() {
+  const counts = {};
+  STATE.rows.forEach(r => {
+    if (!rowMatches(r, true)) return;
+    const t = r.type || 'Autre';
+    counts[t] = (counts[t] || 0) + 1;
+  });
+  // Un type coché qui devient vide reste visible, sinon impossible de le décocher
+  STATE.selectedTypes.forEach(t => { if (!(t in counts)) counts[t] = 0; });
+
   const tEl = document.getElementById('filter-types');
-  tEl.innerHTML = [...types].sort().map(t => `
+  if (!tEl) return;
+  const list = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'fr'));
+
+  if (list.length === 0) {
+    tEl.innerHTML = `<div class="text-[10px] italic px-2 py-1" style="color: var(--slate);">Aucun type dans ce périmètre</div>`;
+    return;
+  }
+
+  tEl.innerHTML = list.map(t => `
     <label>
       <input type="checkbox" value="${escapeHtml(t)}" ${STATE.selectedTypes.has(t) ? 'checked' : ''} onchange="toggleType(this)">
-      <span>${escapeHtml(t)}</span>
+      <span class="flex-1 truncate">${escapeHtml(t)}</span>
+      <span class="font-mono text-[10px] num-tab" style="color: var(--slate);">${counts[t]}</span>
     </label>
   `).join('');
 }
@@ -1323,32 +1412,7 @@ function applyFilters() {
   f.dept = document.getElementById('filter-dept').value;
   f.visite = document.getElementById('filter-visite').checked;
 
-  STATE.filtered = STATE.rows.filter(r => {
-    if (!STATE.visibleStatuses[r.statut]) return false;
-
-    if (f.region === 'MES') {
-      if (!MES_REGIONS.includes(r.region)) return false;
-    } else if (f.region === 'OTHER') {
-      if (MES_REGIONS.includes(r.region)) return false;
-    } else if (f.region !== 'ALL') {
-      if (r.region !== f.region) return false;
-    }
-
-    if (f.dept !== 'ALL' && r.dept !== f.dept) return false;
-    if (STATE.selectedTypes.size > 0 && !STATE.selectedTypes.has(r.type)) return false;
-    if (f.visite && !r.visite) return false;
-    if (r.statut === 'Client' && !STATE.visibleRecency[getRecencyBucket(r).key]) return false;
-
-    if (STATE.quickView === 'visites' && !r.visite) return false;
-    if (STATE.quickView === 'pipeline' && !['Devis envoyé','Discussion'].includes(r.statut)) return false;
-
-    if (STATE.radius.center) {
-      const d = haversine(STATE.radius.center.lat, STATE.radius.center.lon, r.lat, r.lon);
-      if (d > STATE.radius.km) return false;
-    }
-
-    return true;
-  });
+  STATE.filtered = STATE.rows.filter(r => rowMatches(r, false));
 
   if (STATE.quickView === 'topca') {
     STATE.filtered = [...STATE.filtered].sort((a,b) => b.ca - a.ca).slice(0, 20);
@@ -1371,6 +1435,7 @@ function applyFilters() {
   renderStatusCounts();
   renderRecencyCounts();
   renderQuickViewCounts();
+  renderTypeFilter();
 }
 
 function resetFilters() {
@@ -1399,6 +1464,7 @@ function renderStatusCounts() {
   Object.keys(STATUS_CONFIG).forEach(s => counts[s] = 0);
   const f = STATE.filters;
   STATE.rows.forEach(r => {
+    if (r.isDup && !STATE.showDups) return;
     if (f.region === 'MES' && !MES_REGIONS.includes(r.region)) return;
     if (f.region === 'OTHER' && MES_REGIONS.includes(r.region)) return;
     if (f.region !== 'MES' && f.region !== 'OTHER' && f.region !== 'ALL' && r.region !== f.region) return;
@@ -1413,6 +1479,7 @@ function renderStatusCounts() {
 function renderQuickViewCounts() {
   const f = STATE.filters;
   const inScope = STATE.rows.filter(r => {
+    if (r.isDup && !STATE.showDups) return false;
     if (f.region === 'MES') return MES_REGIONS.includes(r.region);
     if (f.region === 'OTHER') return !MES_REGIONS.includes(r.region);
     if (f.region !== 'ALL') return r.region === f.region;
@@ -1458,12 +1525,12 @@ function renderMarkers() {
         renderer: STATE.canvasRenderer,
         radius: group.length > 1 ? 8 : 5,
         fillColor: cfg.color, fillOpacity: 0.95,
-        color: '#ffffff', weight: 1.5
+        color: main.isDup ? '#ED8936' : '#ffffff', weight: main.isDup ? 2.5 : 1.5
       });
     } else {
       const html = group.length > 1
         ? `<div class="marker-cluster" style="width: 22px; height: 22px;">${group.length}</div>`
-        : `<div class="marker-dot" style="background: ${cfg.color};"></div>`;
+        : `<div class="marker-dot${main.isDup ? ' marker-dup' : ''}" style="background: ${cfg.color};"></div>`;
       const icon = L.divIcon({
         className: '',
         html,
@@ -1495,6 +1562,12 @@ function buildPopup(group) {
         </div>
       </div>
       <div style="padding: 12px 16px;">
+        ${r.isDup ? `
+        <div class="text-[10px] mb-3 p-2" style="background: #FCEEDF; color: #C05621; border-radius: 10px;">
+          <b>⚠ Doublon présumé</b> (masqué par défaut)
+          ${r.doublonDetails ? `<br><span style="opacity: 0.85;">${escapeHtml(r.doublonDetails)}</span>` : ''}
+        </div>` : ''}
+
         ${r.ca > 0 ? `
         <div class="mb-3 pb-3" style="border-bottom: 1px solid var(--line);">
           <div class="stat-label">CA annuel</div>
@@ -1806,7 +1879,7 @@ function renderTable() {
       : '—';
     return `
       <tr class="row-clickable" data-id="${escapeHtml(r.id)}" style="border-bottom: 1px solid var(--line);" onclick="zoomToMarker('${escapeHtml(r.id)}', ${r.lat}, ${r.lon})">
-        <td class="px-4 py-2 font-semibold">${escapeHtml(r.nom)}</td>
+        <td class="px-4 py-2 font-semibold">${r.isDup ? '<span title="Doublon présumé" style="color: var(--amber);">⚠ </span>' : ''}${escapeHtml(r.nom)}</td>
         <td class="px-4 py-2" style="color: var(--slate);">${escapeHtml(r.ville)}</td>
         <td class="px-4 py-2 text-[10px] uppercase" style="color: var(--slate);">${escapeHtml(r.type)}</td>
         <td class="px-4 py-2"><span class="pill ${cfg.pillClass||''}">${escapeHtml(r.statut)}</span></td>

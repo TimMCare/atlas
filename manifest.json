@@ -1,7 +1,7 @@
 {
   "name": "Atlas — Sales Mapper",
   "short_name": "Atlas",
-  "start_url": "./atlas_v3.html",
+  "start_url": "./atlas_v4.html",
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#3D7CC9",

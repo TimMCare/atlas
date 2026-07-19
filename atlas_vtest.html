@@ -1,0 +1,2672 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Atlas — Sales Mapper</title>
+<meta name="theme-color" content="#3D7CC9">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Atlas">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Mulish:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    /* Palette Music Care */
+    --blue: #3D7CC9;        /* bleu principal (logo, sections) */
+    --blue-deep: #2A5C9C;   /* bleu foncé (hover, contrastes) */
+    --blue-soft: #7FB3E3;   /* bleu clair (boutons CTA) */
+    --sky: #EDF4FB;         /* fond très clair bleuté */
+    --sky-2: #DEEBF8;       /* fond bleuté un cran plus soutenu */
+    --paper: #FFFFFF;
+    --ink: #23364E;         /* texte principal, bleu-nuit */
+    --slate: #6E85A3;       /* texte secondaire */
+    --slate-soft: #9FB2C8;
+    --line: #DCE7F3;        /* traits, bordures */
+    --green: #43A047;
+    --red: #E05252;
+    --amber: #ED8936;
+    --yellow: #E9B949;
+    --purple: #7E57C2;
+    --shadow: 0 6px 20px rgba(42, 92, 156, 0.12);
+    --shadow-sm: 0 2px 8px rgba(42, 92, 156, 0.10);
+  }
+
+  html, body {
+    background: var(--paper); color: var(--ink);
+    font-family: 'Mulish', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* iOS Safari : 100vh compte la barre d'adresse et masque le bas de l'app.
+     100dvh (dynamic viewport height) s'ajuste au véritable espace visible. */
+  .h-screen { height: 100vh; }
+  @supports (height: 100dvh) {
+    .h-screen { height: 100dvh; }
+  }
+
+  .font-display { font-family: 'Jost', 'Century Gothic', sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  .num-tab { font-variant-numeric: tabular-nums; }
+
+  #map, #dash-map {
+    height: 100%; width: 100%; z-index: 1;
+    background: var(--sky);
+  }
+
+  /* Markers */
+  .marker-dot {
+    border-radius: 50%;
+    border: 2px solid var(--paper);
+    box-shadow: 0 1px 5px rgba(35, 54, 78, 0.35);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+    display: inline-block;
+    width: 14px; height: 14px;
+  }
+  .marker-dot:hover { transform: scale(1.3); }
+  /* Doublon prospect présumé : anneau orange autour du point */
+  .marker-dot.marker-dup { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber); }
+  .marker-cluster {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--blue-deep); color: var(--paper);
+    border-radius: 50%; border: 2px solid var(--paper);
+    font-weight: 700; font-size: 11px;
+    box-shadow: 0 1px 5px rgba(35, 54, 78, 0.35);
+  }
+
+  /* Pins de tournée (numérotés, colorés par jour) */
+  .tour-pin {
+    width: 24px; height: 24px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid var(--paper);
+    box-shadow: 0 2px 6px rgba(35, 54, 78, 0.35);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .tour-pin span {
+    transform: rotate(45deg);
+    color: var(--paper);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700; font-size: 10px;
+  }
+  .tour-pin.start { background: var(--ink) !important; width: 28px; height: 28px; }
+  .tour-pin.start span { font-size: 13px; }
+
+  /* Popup */
+  .leaflet-popup-content-wrapper {
+    border-radius: 16px; background: var(--paper);
+    border: none;
+    box-shadow: var(--shadow);
+    padding: 0; overflow: hidden;
+  }
+  .leaflet-popup-content { margin: 0; width: min(340px, calc(100vw - 90px)) !important; }
+  .leaflet-popup-tip { background: var(--paper); box-shadow: var(--shadow-sm); }
+  .leaflet-popup-close-button {
+    color: var(--paper) !important;
+    right: 8px !important; top: 8px !important;
+    font-size: 16px !important;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--slate-soft); }
+
+  .tab-btn {
+    padding: 8px 18px;
+    font-family: 'Jost', sans-serif; font-weight: 500;
+    font-size: 14px; letter-spacing: 0.02em;
+    color: var(--slate);
+    border-radius: 999px;
+    transition: all 0.15s; cursor: pointer;
+  }
+  .tab-btn:hover { color: var(--blue-deep); background: var(--sky); }
+  .tab-btn.active { color: var(--paper); background: var(--blue); }
+
+  .side-tab-btn {
+    flex: 1;
+    padding: 8px 10px;
+    font-family: 'Jost', sans-serif; font-weight: 500;
+    font-size: 13px; letter-spacing: 0.02em;
+    color: var(--slate);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    transition: all 0.15s; cursor: pointer;
+  }
+  .side-tab-btn:hover { color: var(--blue-deep); }
+  .side-tab-btn.active { color: var(--paper); background: var(--blue); }
+
+  .btn-primary {
+    background: var(--blue); color: var(--paper) !important;
+    text-decoration: none !important;
+    border-radius: 999px;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s, transform 0.1s;
+  }
+  .btn-primary:hover, .btn-primary:visited, .btn-primary:active { color: var(--paper) !important; }
+  .btn-primary:hover { background: var(--blue-deep); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-soft {
+    background: var(--blue-soft); color: var(--paper) !important;
+    text-decoration: none !important;
+    border-radius: 999px;
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s, transform 0.1s;
+  }
+  .btn-soft:hover { background: var(--blue); }
+  .btn-soft:active { transform: scale(0.98); }
+  .btn-outline {
+    background: var(--paper); color: var(--blue-deep);
+    border: 1.5px solid var(--sky-2);
+    border-radius: 999px;
+    transition: all 0.15s;
+  }
+  .btn-outline:hover { border-color: var(--blue-soft); background: var(--sky); }
+  .btn-outline:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px; font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-radius: 999px;
+    background: var(--sky); color: var(--slate);
+  }
+  .pill-green { background: #E4F3E5; color: #2E7D32; }
+  .pill-blue { background: #E1EDF9; color: var(--blue-deep); }
+  .pill-amber { background: #FCEEDF; color: #C05621; }
+  .pill-red { background: #FBE5E5; color: #C03A3A; }
+  .pill-purple { background: #EEE7F8; color: #5E35B1; }
+
+  .stat-label {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--slate);
+  }
+  .big-num {
+    font-family: 'Jost', sans-serif; font-weight: 600;
+    font-feature-settings: "lnum", "tnum";
+    letter-spacing: -0.01em; line-height: 0.95;
+  }
+
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .card-sky {
+    background: var(--sky);
+    border: 1px solid var(--sky-2);
+    border-radius: 16px;
+  }
+
+  .input-round {
+    background: var(--paper);
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    padding: 8px 12px; font-family: 'Mulish', sans-serif;
+    font-size: 13px; color: var(--ink);
+    width: 100%; outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .input-round:focus { border-color: var(--blue-soft); box-shadow: 0 0 0 3px rgba(127, 179, 227, 0.25); }
+  .input-round::placeholder { color: var(--slate-soft); }
+  select.input-round {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 4l3 3 3-3' stroke='%233D7CC9' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 30px;
+  }
+
+  input[type="range"].slider-round {
+    -webkit-appearance: none; width: 100%; height: 4px;
+    background: var(--sky-2); outline: none; border-radius: 999px;
+  }
+  input[type="range"].slider-round::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    background: var(--blue); border-radius: 50%;
+    cursor: pointer; border: 3px solid var(--paper);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .toggle { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--sky-2); transition: 0.2s; border-radius: 999px;
+  }
+  .toggle-slider:before {
+    position: absolute; content: "";
+    height: 14px; width: 14px;
+    left: 3px; bottom: 3px;
+    background: var(--paper); transition: 0.2s; border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(35, 54, 78, 0.3);
+  }
+  input:checked + .toggle-slider { background: var(--blue); }
+  input:checked + .toggle-slider:before { transform: translateX(14px); }
+
+  .layer-toggle {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px;
+    border: 1px solid var(--line); background: var(--paper);
+    border-radius: 12px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .layer-toggle:hover { background: var(--sky); border-color: var(--sky-2); }
+  .layer-toggle.off { opacity: 0.4; }
+  .layer-toggle .layer-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+  @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  .spin { animation: spin 0.9s linear infinite; }
+
+  @keyframes wavePulse {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
+  .wave-bar {
+    display: inline-block; width: 3px; border-radius: 999px;
+    background: var(--blue); margin: 0 2px;
+    animation: wavePulse 1.1s ease-in-out infinite;
+    transform-origin: center;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wave-bar { animation: none; }
+    .spin { animation: none; }
+  }
+
+  .ca-label {
+    background: var(--blue-deep); color: var(--paper);
+    padding: 3px 9px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 600;
+    border: none; border-radius: 999px;
+    box-shadow: var(--shadow-sm);
+    pointer-events: none; white-space: nowrap;
+  }
+
+  @media (max-width: 768px) {
+    #sidebar {
+      position: absolute; left: -100%; top: 0; bottom: 0;
+      width: 88%; z-index: 2000;
+      transition: left 0.3s ease;
+    }
+    #sidebar.open { left: 0; }
+    #overlay.visible { display: block !important; }
+
+    /* Sidebar : la zone scrollable ne doit pas finir sous la barre home iOS */
+    #sidebar > .flex-1.overflow-y-auto {
+      padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    /* Header : tout tient sur une seule ligne (onglets compacts, recherche en icône) */
+    #app-header {
+      flex-wrap: nowrap;
+      gap: 6px !important;
+    }
+    #header-tabs { padding: 3px; gap: 2px; }
+    #header-tabs .tab-btn { padding: 6px 9px; font-size: 11px; }
+
+    #search-wrap {
+      flex: 0 0 auto; max-width: none; margin-left: auto;
+      display: flex; align-items: center; justify-content: flex-end;
+      position: relative;
+    }
+    #search-wrap input#global-search { display: none; }
+    #search-icon-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: 999px; flex-shrink: 0;
+      background: var(--sky); border: none; font-size: 15px; color: var(--blue-deep);
+      cursor: pointer; padding: 0;
+    }
+    #search-close-btn { display: none; }
+
+    /* Mode recherche ouverte : la recherche prend toute la ligne, le reste se cache */
+    #app-header.search-open #mobile-toggle,
+    #app-header.search-open #header-tabs,
+    #app-header.search-open #header-actions { display: none !important; }
+    #app-header.search-open #search-wrap {
+      flex: 1 1 auto; max-width: none; justify-content: flex-start;
+    }
+    #app-header.search-open #search-icon-btn { display: none; }
+    #app-header.search-open input#global-search { display: block; flex: 1 1 auto; }
+    #app-header.search-open #search-close-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; flex-shrink: 0; margin-left: 6px;
+      background: var(--sky); border-radius: 999px; border: none;
+      font-size: 15px; color: var(--slate); cursor: pointer;
+    }
+
+    #header-actions #show-table-btn { padding: 6px 10px; font-size: 10px; }
+
+    /* KPI : grille compacte au lieu du scroll horizontal, libellés raccourcis */
+    #kpi-strip {
+      flex-wrap: wrap;
+      overflow-x: visible;
+      gap: 10px !important;
+      row-gap: 6px;
+    }
+    #kpi-strip .big-num { font-size: 1.05rem !important; }
+    #kpi-strip .stat-label { font-size: 8px; }
+
+    /* Légende : ne doit pas être coupée par la barre home iOS */
+    #content-map .absolute.bottom-4.left-4 {
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      max-height: 40vh;
+      overflow-y: auto;
+      font-size: 9px;
+    }
+
+    /* Tableau bas de carte : laisser de la place pour la barre home iOS */
+    #table-scroll { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+    /* Portefeuille : idem en bas de page scrollable */
+    #content-portfolio { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important; }
+
+    /* Pilotage sur mobile : carte + classement empilés, hauteurs réglables */
+    #content-stats { flex-direction: column; padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
+    #content-stats > div:first-child { flex: 1 1 auto; min-height: 160px; }
+    #rank-panel { flex: 0 0 auto; height: 240px; max-height: 60vh; min-height: 110px; }
+    #rank-panel > .overflow-auto { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  }
+
+  tr.row-clickable:hover { background: var(--sky); cursor: pointer; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--blue); }
+
+  body.mode-selection #map { cursor: crosshair; }
+
+  .loader-overlay {
+    position: absolute; inset: 0;
+    background: var(--paper);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 5000; transition: opacity 0.4s;
+  }
+  .loader-overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .multi-select {
+    max-height: 130px; overflow-y: auto;
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    background: var(--paper);
+    padding: 6px;
+  }
+  .multi-select label {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 6px; font-size: 11px;
+    cursor: pointer; border-radius: 8px;
+  }
+  .multi-select label:hover { background: var(--sky); }
+  .multi-select input[type="checkbox"] { accent-color: var(--blue); }
+
+  .quick-view {
+    width: 100%; text-align: left;
+    padding: 9px 12px; margin-bottom: 6px;
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: 12px;
+    cursor: pointer; transition: all 0.15s;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px;
+  }
+  .quick-view:hover { background: var(--sky); }
+  .quick-view.active { background: var(--sky); border-color: var(--blue-soft); box-shadow: 0 0 0 2px rgba(127,179,227,0.25); }
+
+  /* Recherche globale */
+  #search-wrap { position: relative; }
+  #search-results {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+    background: var(--paper);
+    border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow);
+    z-index: 3000; overflow: hidden;
+    max-height: 340px; overflow-y: auto;
+  }
+  .search-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px; font-size: 12px;
+    cursor: pointer;
+  }
+  .search-item:hover { background: var(--sky); }
+  .search-item + .search-item { border-top: 1px solid var(--sky); }
+  .search-item .sdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .search-item.place { color: var(--blue-deep); font-weight: 600; background: var(--sky); }
+  .search-item.place:hover { background: var(--sky-2); }
+</style>
+</head>
+<body class="h-screen w-screen">
+
+<div id="loader" class="loader-overlay">
+  <div class="text-center">
+    <div class="mx-auto mb-5 flex items-center justify-center" style="width: 84px; height: 84px; border-radius: 50%; background: var(--blue);">
+      <span class="wave-bar" style="height: 18px; animation-delay: 0s;"></span>
+      <span class="wave-bar" style="height: 30px; animation-delay: 0.15s; background: var(--paper);"></span>
+      <span class="wave-bar" style="height: 40px; animation-delay: 0.3s; background: var(--paper);"></span>
+      <span class="wave-bar" style="height: 30px; animation-delay: 0.45s; background: var(--paper);"></span>
+      <span class="wave-bar" style="height: 18px; animation-delay: 0.6s; background: var(--paper);"></span>
+    </div>
+    <div class="font-display text-4xl font-light tracking-wide" style="color: var(--ink);">Atlas</div>
+    <div class="text-[11px] tracking-[0.25em] uppercase mt-1" style="color: var(--blue);">Sales Mapper</div>
+    <div class="mt-4 font-mono text-[10px]" id="loader-status" style="color: var(--slate)">init...</div>
+  </div>
+</div>
+
+<div class="flex h-full w-full relative">
+  <div id="overlay" class="fixed inset-0 bg-black/40 z-[1999] hidden md:!hidden" onclick="toggleSidebar()"></div>
+
+  <!-- ============== SIDEBAR ============== -->
+  <aside id="sidebar" class="w-[340px] flex flex-col" style="background: var(--paper); border-right: 1px solid var(--line); box-shadow: var(--shadow-sm);">
+    <div class="px-6 py-5 relative overflow-hidden" style="background: var(--blue); color: var(--paper); border-radius: 0 0 24px 24px;">
+      <svg class="absolute inset-0 w-full h-full opacity-15" viewBox="0 0 340 110" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0,70 Q42,30 85,70 T170,70 T255,70 T340,70" fill="none" stroke="white" stroke-width="2.5"/>
+        <path d="M0,85 Q42,55 85,85 T170,85 T255,85 T340,85" fill="none" stroke="white" stroke-width="1.5" opacity="0.6"/>
+      </svg>
+      <div class="flex items-baseline justify-between relative">
+        <div>
+          <div class="font-display text-3xl font-light leading-none tracking-wide">Atlas</div>
+          <div class="text-[10px] uppercase tracking-[0.3em] mt-1" style="color: var(--sky-2);">Sales Mapper</div>
+        </div>
+        <button class="md:hidden text-2xl" onclick="toggleSidebar()">×</button>
+      </div>
+      <div class="mt-3 text-[10px] font-mono relative" style="color: var(--sky-2);">
+        Bretagne · Normandie · HdF · Grand Est · Centre-VdL · Pays de la Loire · Bourgogne-FC
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto p-5 space-y-6">
+      <div class="space-y-2">
+        <button id="sync-btn" onclick="syncData()" class="btn-primary w-full py-2.5 text-xs font-bold uppercase tracking-[0.15em] flex items-center justify-center gap-2">
+          <span id="sync-icon">↻</span> <span id="sync-text">Synchroniser</span>
+        </button>
+        <div class="text-[10px] font-mono text-center" style="color: var(--slate)">
+          Dernière sync : <span id="last-sync">—</span>
+        </div>
+        <div id="data-health" class="text-[10px] font-mono text-center" style="color: var(--slate)">—</div>
+      </div>
+
+      <div class="flex gap-1 p-1 rounded-full" style="background: var(--sky);">
+        <button class="side-tab-btn active" id="side-tab-contact" onclick="switchSideTab('contact')">Contact</button>
+        <button class="side-tab-btn" id="side-tab-tour" onclick="switchSideTab('tour')">Tournée</button>
+      </div>
+
+      <!-- ===== ONGLET CONTACT ===== -->
+      <div id="side-content-contact" class="space-y-6">
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Statuts visibles</div>
+          <div class="space-y-1.5" id="status-toggles"></div>
+          <div id="dup-toggle-wrap" class="items-center justify-between text-xs mt-2 px-3 py-2 rounded-xl" style="display: none; background: var(--sky);">
+            <span class="font-semibold" style="color: var(--slate);">Doublons prospects <span id="dup-count" class="font-mono"></span></span>
+            <label class="toggle" title="Afficher les prospects flaggés comme doublons">
+              <input type="checkbox" id="show-dups" onchange="toggleDups(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-[9px] uppercase tracking-[0.2em] font-bold" style="color: var(--slate)">Dernier contact</span>
+            <label class="toggle" title="Basculer la couleur des marqueurs">
+              <input type="checkbox" id="color-mode-toggle" onchange="toggleColorMode(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="text-[9px] mb-2" style="color: var(--slate);">Le switch colore la carte par dernier contact (au lieu du statut)</div>
+          <div class="space-y-1.5" id="recency-toggles"></div>
+        </div>
+
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3 flex justify-between items-center" style="color: var(--slate)">
+            <span>Filtres</span>
+            <button onclick="resetFilters()" class="text-[9px] normal-case tracking-normal font-bold" style="color: var(--blue);">↺ reset</button>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider mb-1 block" style="color: var(--slate)">Périmètre</label>
+              <select id="filter-region" class="input-round" onchange="applyFilters()">
+                <option value="MES">Mes 7 régions</option>
+                <option value="ALL">France entière</option>
+                <option value="BRETAGNE">Bretagne</option>
+                <option value="NORMANDIE">Normandie</option>
+                <option value="HAUTS-DE-FRANCE">Hauts-de-France</option>
+                <option value="GRAND EST">Grand Est</option>
+                <option value="CENTRE-VAL DE LOIRE">Centre-Val de Loire</option>
+                <option value="PAYS DE LA LOIRE">Pays de la Loire</option>
+                <option value="BOURGOGNE-FRANCHE-COMTE">Bourgogne-Franche-Comté</option>
+                <option value="OTHER">Hors périmètre</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider mb-1 block" style="color: var(--slate)">Département</label>
+              <select id="filter-dept" class="input-round" onchange="applyFilters()">
+                <option value="ALL">Tous départements</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider mb-1 block" style="color: var(--slate)">Types d'établissements</label>
+              <div id="filter-types" class="multi-select"></div>
+            </div>
+
+            <div class="flex items-center justify-between text-xs pt-1">
+              <span class="font-semibold">Visites prévues uniquement</span>
+              <label class="toggle">
+                <input type="checkbox" id="filter-visite" onchange="applyFilters()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3" style="color: var(--slate)">Vues rapides</div>
+          <button class="quick-view" data-view="visites" onclick="applyQuickView('visites')">
+            <span><span style="color: var(--blue);">📅</span> Avec visite prévue</span>
+            <span class="font-mono num-tab" id="qv-visites">—</span>
+          </button>
+          <button class="quick-view" data-view="topca" onclick="applyQuickView('topca')">
+            <span><span style="color: var(--amber);">★</span> Top 20 CA</span>
+            <span class="font-mono num-tab" id="qv-topca">—</span>
+          </button>
+          <button class="quick-view" data-view="pipeline" onclick="applyQuickView('pipeline')">
+            <span><span style="color: var(--purple);">▸</span> Pipeline chaud</span>
+            <span class="font-mono num-tab" id="qv-pipeline">—</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ===== ONGLET TOURNÉE ===== -->
+      <div id="side-content-tour" class="space-y-6 hidden">
+        <div class="card-sky p-4">
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-2" style="color: var(--slate)">Point de départ</div>
+          <div class="text-[11px] mb-3" style="color: var(--ink);">
+            Départ actuel : <span id="start-label" class="font-semibold" style="color: var(--blue-deep);">—</span>
+          </div>
+          <div class="space-y-2">
+            <button id="use-place-btn" onclick="usePlaceAsStart()" disabled class="btn-outline w-full py-2 text-[11px] font-bold">
+              📍 Utiliser le dernier lieu recherché
+            </button>
+            <button onclick="getUserLocation()" class="btn-outline w-full py-2 text-[11px] font-bold">
+              ⊕ Ma position
+            </button>
+          </div>
+          <div class="text-[9px] mt-2" style="color: var(--slate);">Cherche une ville ou une adresse dans la barre du haut, puis définis-la comme départ. Ou active la sélection libre et clique sur la carte.</div>
+        </div>
+
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.2em] font-bold mb-3 flex justify-between items-center" style="color: var(--slate)">
+            <span>Rayon de sélection</span>
+            <button id="reset-radius" onclick="clearRadius()" class="hidden text-[9px] normal-case font-bold" style="color: var(--red);">✕ Annuler</button>
+          </div>
+          <div class="flex items-center justify-between mb-3 text-xs">
+            <span class="font-semibold">Sélection libre (clic carte)</span>
+            <label class="toggle">
+              <input type="checkbox" id="selection-mode" onchange="toggleSelectionMode(this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="radius-block" class="space-y-2 opacity-50 pointer-events-none">
+            <input type="range" min="5" max="150" step="5" value="30" class="slider-round" id="radius-slider" oninput="updateRadius(this.value)">
+            <div class="flex justify-between font-mono text-[10px]">
+              <span style="color: var(--slate)">5 km</span>
+              <span class="font-bold num-tab" id="radius-display" style="color: var(--blue-deep);">30 km</span>
+              <span style="color: var(--slate)">150 km</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pt-4" style="border-top: 1px dashed var(--line);">
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider mb-1 block" style="color: var(--slate)">Jours</label>
+              <input id="tour-days" type="number" min="1" max="10" value="1" class="input-round">
+            </div>
+            <div>
+              <label class="text-[9px] font-bold uppercase tracking-wider mb-1 block" style="color: var(--slate)">Visites / jour</label>
+              <input id="tour-perday" type="number" min="1" max="20" value="10" class="input-round">
+            </div>
+          </div>
+          <div class="flex items-center justify-between text-xs mb-3">
+            <span class="font-semibold">Retour au départ chaque soir</span>
+            <label class="toggle">
+              <input type="checkbox" id="tour-return">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <button onclick="planTour()" class="btn-soft w-full py-2.5 text-xs font-bold uppercase tracking-[0.15em] flex items-center justify-center gap-2">
+            ⟲ Optimiser la tournée
+          </button>
+          <div class="text-[9px] mt-2" style="color: var(--slate);">Distances à vol d'oiseau — compte ~+30% sur route.</div>
+          <div id="tour-summary" class="hidden mt-2 text-[10px] font-mono text-center py-2 rounded-xl" style="color: var(--blue-deep); background: var(--sky); border: 1px solid var(--sky-2);"></div>
+          <div id="tour-gmaps-links" class="hidden"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============== MAIN ============== -->
+  <main class="flex-1 flex flex-col overflow-hidden">
+    <header id="app-header" class="h-16 px-3 md:px-6 flex items-center gap-2 md:gap-4 shrink-0" style="background: var(--paper); border-bottom: 1px solid var(--line);">
+      <button id="mobile-toggle" onclick="toggleSidebar()" class="md:hidden p-2 text-xl" style="color: var(--blue-deep);">☰</button>
+      <div id="header-tabs" class="flex items-center gap-1 shrink-0 p-1 rounded-full" style="background: var(--sky);">
+        <button class="tab-btn active" id="tab-map" onclick="switchTab('map')">Carte</button>
+        <button class="tab-btn" id="tab-portfolio" onclick="switchTab('portfolio')">Portefeuille</button>
+        <button class="tab-btn" id="tab-stats" onclick="switchTab('stats')">Pilotage</button>
+        <button class="tab-btn" id="tab-comptes" onclick="switchTab('comptes')">Comptes</button>
+      </div>
+      <div id="search-wrap" class="flex-1 min-w-0 max-w-md ml-auto">
+        <button id="search-icon-btn" class="md:hidden" onclick="toggleMobileSearch()" aria-label="Rechercher">🔍</button>
+        <input id="global-search" type="text" placeholder="🔍 Établissement, ville, adresse..." class="input-round" autocomplete="off"
+               oninput="onGlobalSearch()" onkeydown="if(event.key==='Escape') hideSearchResults()">
+        <button id="search-close-btn" class="md:hidden" onclick="closeMobileSearch()" aria-label="Fermer la recherche">✕</button>
+        <div id="search-results" class="hidden"></div>
+      </div>
+      <div id="header-actions" class="flex items-center gap-3 text-[10px] font-mono shrink-0" style="color: var(--slate)">
+        <button id="show-table-btn" onclick="showTablePanel()" class="hidden btn-primary uppercase tracking-wider font-bold py-1.5 px-3 text-[10px]" style="font-family: 'Mulish', sans-serif;">
+          <span class="md:hidden">▴ TABL</span><span class="hidden md:inline">▴ Tableau</span>
+        </button>
+        <span id="visible-count" class="hidden md:inline">—</span>
+      </div>
+    </header>
+
+    <!-- KPI strip -->
+    <div id="kpi-strip" class="shrink-0 px-4 md:px-6 py-3 flex items-end gap-5 md:gap-10 overflow-x-auto" style="background: var(--sky); border-bottom: 1px solid var(--line);">
+      <div class="shrink-0">
+        <div class="stat-label"><span class="md:hidden">CA Clients</span><span class="hidden md:inline">CA Clients (réalisé)</span></div>
+        <div class="big-num text-2xl md:text-3xl num-tab" id="kpi-ca-clients" style="color: var(--green);">— €</div>
+      </div>
+      <div class="shrink-0">
+        <div class="stat-label"><span class="md:hidden">CA Pipeline</span><span class="hidden md:inline">CA Pipeline (devis + discussion)</span></div>
+        <div class="big-num text-2xl md:text-3xl num-tab" id="kpi-ca-pipe" style="color: var(--blue);">— €</div>
+      </div>
+      <div style="width:1px; align-self: stretch; background: var(--line);" class="hidden md:block"></div>
+      <div class="shrink-0">
+        <div class="stat-label">Clients</div>
+        <div class="big-num text-xl num-tab" id="kpi-clients" style="color: var(--green);">—</div>
+      </div>
+      <div class="shrink-0">
+        <div class="stat-label">Devis</div>
+        <div class="big-num text-xl num-tab" id="kpi-devis" style="color: var(--blue);">—</div>
+      </div>
+      <div class="shrink-0">
+        <div class="stat-label">Discussion</div>
+        <div class="big-num text-xl num-tab" id="kpi-disc" style="color: var(--purple);">—</div>
+      </div>
+      <div class="shrink-0">
+        <div class="stat-label">Prospects</div>
+        <div class="big-num text-xl num-tab" id="kpi-prosp" style="color: var(--slate);">—</div>
+      </div>
+    </div>
+
+    <!-- TAB MAP -->
+    <div id="content-map" class="flex-1 flex flex-col min-h-0">
+      <div class="flex-1 relative">
+        <div id="map"></div>
+        <div class="absolute bottom-4 left-4 z-[1000] p-3 text-[10px] card">
+          <div class="font-bold uppercase tracking-wider mb-2" style="color: var(--slate); font-size: 8px;">Légende</div>
+          <div class="space-y-1" id="legend-items"></div>
+        </div>
+        <button id="reset-radius-map" onclick="clearRadius()" class="hidden absolute top-4 left-14 z-[1000] px-3 py-2 card text-[11px] font-bold" style="color: var(--red);">✕ Rayon</button>
+        <div id="tour-stats" class="hidden absolute top-4 right-4 z-[1000] flex gap-2">
+          <div class="px-3 py-2 text-center card">
+            <div class="text-[8px] uppercase tracking-wider font-bold" style="color: var(--slate)">Distance</div>
+            <div class="font-mono font-bold text-sm num-tab" style="color: var(--blue-deep);" id="tour-km">—</div>
+          </div>
+          <div class="px-3 py-2 text-center card">
+            <div class="text-[8px] uppercase tracking-wider font-bold" style="color: var(--slate)">Étapes</div>
+            <div class="font-mono font-bold text-sm num-tab" style="color: var(--blue-deep);" id="tour-stops">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="table-panel" class="flex flex-col" style="border-top: 1px solid var(--line); background: var(--paper); height: 200px;">
+        <div id="table-resize-handle" class="shrink-0" style="height: 6px; cursor: row-resize; background: var(--sky-2); border-radius: 999px; margin: 2px 12px;" title="Glisser pour redimensionner"></div>
+        <div class="px-4 md:px-6 py-2 flex justify-between items-center shrink-0" style="background: var(--sky); border-bottom: 1px solid var(--line);">
+          <div class="text-[10px] uppercase tracking-[0.2em] font-bold" style="color: var(--slate)">
+            <span id="table-title">Sélection</span> · <span id="table-count">0</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <button id="clear-tour" onclick="clearTour()" class="hidden text-[10px] uppercase tracking-wider font-bold" style="color: var(--slate);">✕ Effacer la tournée</button>
+            <button onclick="exportCSV()" class="text-[10px] uppercase tracking-wider font-bold flex items-center gap-1" style="color: var(--blue);">
+              ↓ Export CSV
+            </button>
+            <button id="hide-table-btn" onclick="hideTablePanel()" class="text-[10px] uppercase tracking-wider font-bold" style="color: var(--ink);" title="Cacher le tableau">
+              ▾ Cacher
+            </button>
+          </div>
+        </div>
+        <div id="table-scroll" class="overflow-auto flex-1" style="min-height: 0;">
+          <table class="w-full text-left">
+            <thead class="sticky top-0 z-10" style="background: var(--paper);">
+              <tr class="text-[9px] uppercase tracking-wider" style="color: var(--slate); border-bottom: 1px solid var(--line);">
+                <th class="px-4 py-2">Établissement</th>
+                <th class="px-4 py-2 sortable" onclick="sortTable('ville')">Ville</th>
+                <th class="px-4 py-2 sortable" onclick="sortTable('type')">Type</th>
+                <th class="px-4 py-2 sortable" onclick="sortTable('statut')">Statut</th>
+                <th class="px-4 py-2 sortable" onclick="sortTable('dernierContactTs')">Dernier contact</th>
+                <th class="px-4 py-2 sortable text-right" onclick="sortTable('ca')">CA</th>
+                <th class="px-4 py-2 text-center">Jour</th>
+                <th class="px-4 py-2 text-right">+ km</th>
+              </tr>
+            </thead>
+            <tbody id="table-body" class="text-[11px]"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB PORTFOLIO -->
+    <div id="content-portfolio" class="hidden flex-1 overflow-auto p-6 md:p-10" style="background: var(--sky);">
+      <div class="max-w-6xl mx-auto">
+        <div class="mb-8">
+          <div class="text-[10px] uppercase tracking-[0.3em] font-bold mb-2" style="color: var(--blue);">— Vue d'ensemble</div>
+          <h2 class="font-display text-4xl md:text-5xl font-light italic tracking-tight" style="color: var(--ink);">Mon portefeuille</h2>
+          <div class="h-1 mt-4 rounded-full" style="background: var(--blue-soft); width: 60px;"></div>
+        </div>
+
+        <section class="mb-12">
+          <div class="text-[10px] uppercase tracking-[0.25em] font-bold mb-4" style="color: var(--slate)">Synthèse · périmètre filtré</div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="p-5 card">
+              <div class="stat-label">CA Clients</div>
+              <div class="big-num text-3xl mt-2 num-tab" id="port-ca-clients" style="color: var(--green);">—</div>
+            </div>
+            <div class="p-5 card">
+              <div class="stat-label">CA Devis</div>
+              <div class="big-num text-3xl mt-2 num-tab" id="port-ca-devis" style="color: var(--blue);">—</div>
+            </div>
+            <div class="p-5 card">
+              <div class="stat-label">CA Discussion</div>
+              <div class="big-num text-3xl mt-2 num-tab" id="port-ca-disc" style="color: var(--purple);">—</div>
+            </div>
+            <div class="p-5 card" style="border-color: var(--blue-soft);">
+              <div class="stat-label">CA potentiel total</div>
+              <div class="big-num text-3xl mt-2 num-tab" id="port-ca-total" style="color: var(--blue-deep);">—</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid md:grid-cols-2 gap-8 mb-12">
+          <div class="card p-5">
+            <div class="text-[10px] uppercase tracking-[0.25em] font-bold mb-4" style="color: var(--slate)">Top 10 par CA</div>
+            <table class="w-full text-sm">
+              <tbody id="top-clients-body"></tbody>
+            </table>
+          </div>
+          <div class="card p-5">
+            <div class="text-[10px] uppercase tracking-[0.25em] font-bold mb-4" style="color: var(--slate)">Visites prévues</div>
+            <table class="w-full text-sm">
+              <tbody id="visites-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="mb-12">
+          <div class="text-[10px] uppercase tracking-[0.25em] font-bold mb-4" style="color: var(--slate)">Mes types d'établissements</div>
+          <div id="types-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"></div>
+        </section>
+
+        <section class="mb-12">
+          <div class="text-[10px] uppercase tracking-[0.25em] font-bold mb-4" style="color: var(--slate)">Répartition par région (clients uniquement)</div>
+          <div id="regions-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- TAB STATS (Pilotage) -->
+    <div id="content-stats" class="hidden flex-1 flex flex-col md:flex-row gap-4 p-4 md:p-6 min-h-0" style="background: var(--sky);">
+      <div class="flex-1 relative card overflow-hidden" style="min-height: 220px;">
+        <div class="px-5 py-3 flex justify-between items-center" style="background: var(--paper); border-bottom: 1px solid var(--line);">
+          <div>
+            <div class="font-display text-base font-medium" id="dash-title">France · CA par région</div>
+            <div class="text-[10px]" style="color: var(--slate);" id="dash-subtitle">Cliquez sur une région pour zoomer</div>
+          </div>
+          <button onclick="resetDashMap()" id="dash-back" class="hidden btn-primary text-[10px] uppercase tracking-wider font-bold py-1.5 px-4">← France</button>
+        </div>
+        <div id="dash-map" style="height: calc(100% - 49px);"></div>
+      </div>
+      <div id="rank-panel" class="md:w-[420px] overflow-hidden flex flex-col card">
+        <div id="rank-resize-handle" class="md:hidden shrink-0" style="height: 6px; width: 60px; cursor: row-resize; background: var(--sky-2); border-radius: 999px; margin: 8px auto 2px;" title="Glisser pour redimensionner"></div>
+        <div class="px-5 py-3" style="background: var(--paper); border-bottom: 1px solid var(--line);">
+          <div class="font-display text-base font-medium" id="rank-title">Classement</div>
+          <div class="text-[10px]" style="color: var(--slate);">Trié par CA Clients (réalisé)</div>
+        </div>
+        <div class="overflow-auto flex-1">
+          <table class="w-full text-left">
+            <thead class="sticky top-0" style="background: var(--paper);">
+              <tr class="text-[9px] uppercase tracking-wider" style="color: var(--slate); border-bottom: 1px solid var(--line);">
+                <th class="px-4 py-3" id="rank-h1">Région</th>
+                <th class="px-4 py-3 text-center">Clients</th>
+                <th class="px-4 py-3 text-right">CA Clients</th>
+              </tr>
+            </thead>
+            <tbody id="rank-body" class="text-[12px]"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- TAB COMPTES (Facturation Sellsy) -->
+    <div id="content-comptes" class="hidden flex-1 overflow-auto p-6 md:p-10" style="background: var(--sky);">
+      <div class="max-w-6xl mx-auto">
+        <div class="mb-6">
+          <div class="text-[10px] uppercase tracking-[0.3em] font-bold mb-2" style="color: var(--blue);">— Facturation Sellsy</div>
+          <h2 class="font-display text-4xl md:text-5xl font-light italic tracking-tight" style="color: var(--ink);">Comptes</h2>
+          <div class="h-1 mt-4 rounded-full" style="background: var(--blue-soft); width: 60px;"></div>
+          <div class="text-[11px] mt-3" style="color: var(--slate);">Ce que chaque client a réellement facturé chez Music Care, son MRR et sa prochaine échéance. Suit les mêmes filtres (région, statut, type) que le reste de l'app.</div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div class="p-5 card"><div class="stat-label">CA facturé (cumul)</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-ca-facture" style="color: var(--blue-deep);">—</div></div>
+          <div class="p-5 card"><div class="stat-label">CA année en cours</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-ca-annee" style="color: var(--green);">—</div></div>
+          <div class="p-5 card"><div class="stat-label">MRR mensuel</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-mrr" style="color: var(--purple);">—</div></div>
+          <div class="p-5 card"><div class="stat-label">Comptes affichés</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-count" style="color: var(--ink);">—</div></div>
+        </div>
+
+        <div class="flex flex-col md:flex-row gap-3 mb-4">
+          <input id="comptes-search" type="text" placeholder="🔍 Rechercher un compte..." class="input-round md:max-w-xs" autocomplete="off" oninput="onComptesSearch(this.value)">
+          <select id="comptes-sort" class="input-round md:max-w-[240px]" onchange="onComptesSort(this.value)">
+            <option value="caAnnee">Trier : CA année en cours</option>
+            <option value="caFacture">Trier : CA facturé (cumul)</option>
+            <option value="mrrMensuel">Trier : MRR mensuel</option>
+            <option value="echeance">Trier : prochaine échéance</option>
+          </select>
+        </div>
+
+        <div id="comptes-hors-base" class="hidden text-[11px] mb-3 p-2 rounded-xl" style="background: var(--sky-2); color: var(--slate);"></div>
+        <div id="comptes-list" class="space-y-3"></div>
+        <div id="comptes-empty" class="hidden text-center py-12 text-sm italic" style="color: var(--slate);">Aucun compte facturé dans la sélection actuelle. Vérifie tes filtres (région, statut, type), ou la publication de l'onglet « Sellsy propre ».</div>
+      </div>
+    </div>
+
+  </main>
+
+</div>
+
+<script>
+// =========================================================================
+// ATLAS v3 — Sales Mapper (design Music Care)
+// =========================================================================
+
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS260Q3Tz1OIuDTZOu7ptoADnF26sjp3RLFOPYzylLZ77ZiP1KuA11-OzxNM6ktWkwL1qpylnWb1ZV4/pub?output=csv";
+const SELLSY_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS260Q3Tz1OIuDTZOu7ptoADnF26sjp3RLFOPYzylLZ77ZiP1KuA11-OzxNM6ktWkwL1qpylnWb1ZV4/pub?gid=1212909821&single=true&output=csv";
+const GEOJSON_REGIONS = "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/regions.geojson";
+const GEOJSON_DEPTS = "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements.geojson";
+
+const MES_REGIONS = ['BRETAGNE', 'NORMANDIE', 'HAUTS-DE-FRANCE', 'GRAND EST', 'CENTRE-VAL DE LOIRE', 'PAYS DE LA LOIRE', 'BOURGOGNE-FRANCHE-COMTE'];
+
+const REGION_DEPT_CODES = {
+  'BRETAGNE': ['22', '29', '35', '56'],
+  'NORMANDIE': ['14', '27', '50', '61', '76'],
+  'HAUTS-DE-FRANCE': ['02', '59', '60', '62', '80'],
+  'GRAND EST': ['08', '10', '51', '52', '54', '55', '57', '67', '68', '88'],
+  'CENTRE-VAL DE LOIRE': ['18', '28', '36', '37', '41', '45'],
+  'PAYS DE LA LOIRE': ['44', '49', '53', '72', '85'],
+  'BOURGOGNE-FRANCHE-COMTE': ['21', '25', '39', '58', '70', '71', '89', '90']
+};
+
+const REGION_PROPER = {
+  'BRETAGNE': 'Bretagne',
+  'NORMANDIE': 'Normandie',
+  'HAUTS-DE-FRANCE': 'Hauts-de-France',
+  'GRAND EST': 'Grand Est',
+  'AUVERGNE-RHONE-ALPES': 'Auvergne-Rhône-Alpes',
+  'BOURGOGNE-FRANCHE-COMTE': 'Bourgogne-Franche-Comté',
+  'CENTRE-VAL DE LOIRE': 'Centre-Val de Loire',
+  'CORSE': 'Corse',
+  'ILE-DE-FRANCE': 'Île-de-France',
+  'NOUVELLE-AQUITAINE': 'Nouvelle-Aquitaine',
+  'OCCITANIE': 'Occitanie',
+  'PAYS DE LA LOIRE': 'Pays de la Loire',
+  "PROVENCE-ALPES-COTE D'AZUR": "Provence-Alpes-Côte d'Azur"
+};
+
+// Un établissement est "dans mon périmètre" si sa région (accents et casse
+// ignorés) fait partie de MES_REGIONS. Robuste au cas BOURGOGNE-FRANCHE-COMTÉ.
+function isMine(region) { return MES_REGIONS.includes(normRegion(region)); }
+// Nom d'affichage propre d'une région (insensible aux accents).
+function properRegion(region) { return REGION_PROPER[normRegion(region)] || region; }
+// Deux libellés de région désignent-ils la même région ?
+function sameRegion(a, b) { return normRegion(a) === normRegion(b); }
+
+// Couleurs par statut (palette Music Care)
+const STATUS_CONFIG = {
+  'Client':       { color: '#43A047', label: 'Clients',     defaultOn: true,  pillClass: 'pill-green' },
+  'Devis envoyé': { color: '#3D7CC9', label: 'Devis',       defaultOn: false, pillClass: 'pill-blue' },
+  'Discussion':   { color: '#7E57C2', label: 'Discussion',  defaultOn: false, pillClass: 'pill-purple' },
+  'Prospect':     { color: '#9FB2C8', label: 'Prospects',   defaultOn: false, pillClass: '' },
+  'Refusé':       { color: '#E05252', label: 'Refusés',     defaultOn: false, pillClass: 'pill-red' }
+};
+
+// Tranches de récence du dernier contact (Clients uniquement)
+const RECENCY_BUCKETS = [
+  { key: 'lt1m',  label: '< 1 mois',         color: '#43A047', maxDays: 30 },
+  { key: '1to3m', label: '1 à 3 mois',       color: '#E9B949', maxDays: 90 },
+  { key: '3to6m', label: '3 à 6 mois',       color: '#ED8936', maxDays: 180 },
+  { key: 'gt6m',  label: '> 6 mois',         color: '#E05252', maxDays: Infinity },
+  { key: 'never', label: 'Jamais contacté',  color: '#23364E', maxDays: null }
+];
+
+// Au-delà de ce nombre de points affichés, la carte passe en rendu canvas
+// (points "peints" au lieu d'éléments individuels) pour rester fluide.
+const CANVAS_THRESHOLD = 400;
+
+function getRecencyBucket(row) {
+  if (row.statut !== 'Client') return null;
+  if (!row.dernierContact) return RECENCY_BUCKETS[4];
+  const days = (Date.now() - row.dernierContact.getTime()) / 86400000;
+  if (days <= 30) return RECENCY_BUCKETS[0];
+  if (days <= 90) return RECENCY_BUCKETS[1];
+  if (days <= 180) return RECENCY_BUCKETS[2];
+  return RECENCY_BUCKETS[3];
+}
+
+function parseFrDate(s) {
+  if (!s) return null;
+  s = s.toString().trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) {
+    const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// ---- STATE -------------------------------------------------------------
+const STATE = {
+  rows: [],
+  filtered: [],
+  visibleStatuses: {},
+  visibleRecency: {},
+  colorMode: 'statut',
+  showDups: false,
+  selectedTypes: new Set(),
+  filters: { region: 'MES', dept: 'ALL', visite: false },
+  quickView: null,
+  map: null, dashMap: null,
+  markersLayer: null, dashLayer: null, labelsLayer: null,
+  canvasRenderer: null,
+  radius: { center: null, km: 30, circle: null, marker: null },
+  tour: { active: false, stops: [], returnHome: false, returnKm: 0 },
+  selectionMode: false,
+  sort: { field: 'ca', dir: 'desc' },
+  geoData: { regions: null, depts: null },
+  dashScope: 'national', dashSelected: null, dashRegionKey: null,
+  health: { total: 0, kept: 0, noCoords: 0, dupSkipped: 0, badDates: 0 },
+  lastPlace: null,      // dernier lieu recherché { lat, lon, label }
+  startLabel: null,     // libellé du point de départ tournée
+  tempMarker: null,     // pin temporaire du dernier résultat de recherche
+  sellsy: { rows: [], byClient: {} },   // facturation Sellsy (onglet "Sellsy propre")
+  comptesSearch: '', comptesSort: 'caAnnee', comptesExpanded: new Set(), comptesDetailExpanded: new Set()
+};
+
+Object.entries(STATUS_CONFIG).forEach(([s, cfg]) => STATE.visibleStatuses[s] = cfg.defaultOn);
+RECENCY_BUCKETS.forEach(b => STATE.visibleRecency[b.key] = true);
+
+// ---- BOOT --------------------------------------------------------------
+window.addEventListener('DOMContentLoaded', async () => {
+  setStatus("Initialisation carte…");
+  initMap();
+  buildLegend();
+  buildStatusToggles();
+  buildRecencyToggles();
+  setStatus("Synchronisation Google Sheet…");
+  await loadSheet();
+  setStatus("Chargement facturation Sellsy…");
+  await loadSellsy();
+  setStatus("Chargement géographie…");
+  await loadGeoData();
+  setStatus("Calculs finaux…");
+  populateFilters();
+  applyFilters();
+  renderPortfolio();
+  if (window.innerWidth < 768) hideTablePanel(); // mobile : carte plein écran par défaut
+  hideLoader();
+});
+
+function setStatus(msg) { const el = document.getElementById('loader-status'); if (el) el.textContent = msg; }
+function hideLoader() { setTimeout(() => document.getElementById('loader')?.classList.add('hidden'), 300); }
+
+// ---- MAP INIT ----------------------------------------------------------
+function initMap() {
+  STATE.map = L.map('map', { zoomControl: false }).setView([47.5, 2.5], 6);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(STATE.map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+    pane: 'shadowPane'
+  }).addTo(STATE.map);
+  L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
+  STATE.markersLayer = L.layerGroup().addTo(STATE.map);
+  STATE.tourLayer = L.layerGroup().addTo(STATE.map);
+  STATE.tempLayer = L.layerGroup().addTo(STATE.map);
+  STATE.canvasRenderer = L.canvas({ padding: 0.3 });
+  STATE.map.on('click', (e) => {
+    if (STATE.selectionMode) {
+      setRadiusCenter(e.latlng.lat, e.latlng.lng, 'Point choisi sur la carte');
+    }
+  });
+
+  STATE.dashMap = L.map('dash-map', { zoomControl: false, attributionControl: false }).setView([46.5, 2.5], 5);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(STATE.dashMap);
+  STATE.dashLayer = L.layerGroup().addTo(STATE.dashMap);
+  STATE.labelsLayer = L.layerGroup().addTo(STATE.dashMap);
+
+  // Fermer la liste de recherche si on clique ailleurs
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('search-wrap').contains(e.target)) hideSearchResults();
+  });
+}
+
+// ---- RECHERCHE GLOBALE (établissements + lieux) --------------------------
+function normStr(s) {
+  return (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+let searchDebounce = null;
+function onGlobalSearch() {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(renderSearchResults, 150);
+}
+
+function renderSearchResults() {
+  const q = document.getElementById('global-search').value.trim();
+  const box = document.getElementById('search-results');
+  if (q.length < 2) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  const nq = normStr(q);
+
+  const matches = STATE.rows
+    .filter(r => normStr(r.nom).includes(nq) || normStr(r.ville).includes(nq))
+    .sort((a, b) => b.ca - a.ca)
+    .slice(0, 8);
+
+  const items = matches.map(r => {
+    const cfg = STATUS_CONFIG[r.statut] || { color: '#9FB2C8' };
+    return `
+      <div class="search-item" onclick="pickEstablishment('${escapeHtml(r.id)}')">
+        <span class="sdot" style="background: ${cfg.color};"></span>
+        <span class="flex-1 min-w-0">
+          <span class="font-semibold">${escapeHtml(r.nom)}</span>
+          <span style="color: var(--slate);"> · ${escapeHtml(r.ville)}</span>
+        </span>
+        <span class="font-mono text-[10px] num-tab" style="color: var(--slate);">${r.ca > 0 ? Math.round(r.ca).toLocaleString('fr-FR') + ' €' : ''}</span>
+      </div>`;
+  }).join('');
+
+  const placeItem = `
+    <div class="search-item place" onclick="pickPlace(${JSON.stringify(q).replace(/"/g, '&quot;')})">
+      <span>📍</span>
+      <span>Chercher « ${escapeHtml(q)} » comme lieu (ville, adresse)</span>
+    </div>`;
+
+  box.innerHTML = (items || `<div class="search-item" style="color: var(--slate); cursor: default;">Aucun établissement trouvé</div>`) + placeItem;
+  box.classList.remove('hidden');
+}
+
+function hideSearchResults() {
+  document.getElementById('search-results').classList.add('hidden');
+}
+
+// Mobile : la recherche démarre en icône seule, s'ouvre en plein largeur au tap
+function toggleMobileSearch() {
+  document.getElementById('app-header').classList.add('search-open');
+  setTimeout(() => document.getElementById('global-search').focus(), 50);
+}
+function closeMobileSearch() {
+  document.getElementById('app-header').classList.remove('search-open');
+  hideSearchResults();
+  document.getElementById('global-search').value = '';
+}
+
+function showTempResult(row) {
+  STATE.tempLayer.clearLayers();
+  const m = L.circleMarker([row.lat, row.lon], {
+    radius: 11, fillColor: 'transparent', color: '#3D7CC9', weight: 3, opacity: 0.9
+  });
+  m.bindPopup(buildPopup([row]), { className: 'custom-popup', maxWidth: Math.min(340, window.innerWidth - 60) });
+  STATE.tempLayer.addLayer(m);
+  m.openPopup();
+}
+
+function pickEstablishment(id) {
+  hideSearchResults();
+  const row = STATE.rows.find(r => r.id === id);
+  if (!row) return;
+  switchTab('map');
+  setTimeout(() => {
+    STATE.map.setView([row.lat, row.lon], 14);
+    showTempResult(row); // fonctionne même si l'établissement est masqué par les filtres
+  }, 150);
+}
+
+async function pickPlace(q) {
+  hideSearchResults();
+  const input = document.getElementById('global-search');
+  input.value = q;
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=fr&limit=1&accept-language=fr&q=${encodeURIComponent(q)}`);
+    const d = await r.json();
+    if (!d[0]) { alert(`Lieu « ${q} » introuvable en France.`); return; }
+    const lat = parseFloat(d[0].lat), lon = parseFloat(d[0].lon);
+    const label = (d[0].display_name || q).split(',').slice(0, 2).join(',');
+    STATE.lastPlace = { lat, lon, label };
+    document.getElementById('use-place-btn').disabled = false;
+    switchTab('map');
+    setTimeout(() => {
+      STATE.map.setView([lat, lon], 11);
+      STATE.tempLayer.clearLayers();
+      const m = L.circleMarker([lat, lon], { radius: 8, fillColor: '#3D7CC9', fillOpacity: 1, color: '#fff', weight: 2.5 });
+      m.bindPopup(`<div style="padding: 10px 14px; font-size: 12px;"><b>📍 ${escapeHtml(label)}</b><br><span style="color: var(--slate); font-size: 10px;">Onglet Tournée → « Utiliser le dernier lieu recherché » pour en faire ton point de départ.</span></div>`);
+      STATE.tempLayer.addLayer(m);
+      m.openPopup();
+    }, 150);
+  } catch (e) { console.warn(e); alert('Recherche de lieu indisponible (réseau ?).'); }
+}
+
+function usePlaceAsStart() {
+  if (!STATE.lastPlace) return;
+  setRadiusCenter(STATE.lastPlace.lat, STATE.lastPlace.lon, STATE.lastPlace.label);
+  STATE.map.setView([STATE.lastPlace.lat, STATE.lastPlace.lon], 10);
+}
+
+// ---- LÉGENDE & TOGGLES ---------------------------------------------------
+function buildLegend() {
+  const legendEl = document.getElementById('legend-items');
+  if (STATE.colorMode === 'recence') {
+    legendEl.innerHTML = RECENCY_BUCKETS.map(b => `
+      <div class="flex items-center gap-2"><span class="marker-dot" style="background: ${b.color}; position: relative;"></span><span>${b.label}</span></div>
+    `).join('');
+  } else {
+    legendEl.innerHTML = Object.entries(STATUS_CONFIG).map(([s, cfg]) => `
+      <div class="flex items-center gap-2"><span class="marker-dot" style="background: ${cfg.color}; position: relative;"></span><span>${cfg.label}</span></div>
+    `).join('');
+  }
+}
+
+function buildRecencyToggles() {
+  const el = document.getElementById('recency-toggles');
+  if (!el) return;
+  el.innerHTML = RECENCY_BUCKETS.map(b => `
+    <div class="layer-toggle ${STATE.visibleRecency[b.key] ? '' : 'off'}" data-recency="${b.key}" onclick="toggleRecency('${b.key}')">
+      <span class="flex items-center gap-2">
+        <span class="layer-dot" style="background: ${b.color};"></span>
+        <span class="text-xs font-semibold">${b.label}</span>
+      </span>
+      <span class="font-mono text-[10px] num-tab" id="rcount-${b.key}">—</span>
+    </div>
+  `).join('');
+}
+
+function toggleRecency(key) {
+  STATE.visibleRecency[key] = !STATE.visibleRecency[key];
+  document.querySelectorAll('[data-recency]').forEach(t => {
+    t.classList.toggle('off', !STATE.visibleRecency[t.dataset.recency]);
+  });
+  applyFilters();
+}
+
+function toggleColorMode(checked) {
+  STATE.colorMode = checked ? 'recence' : 'statut';
+  buildLegend();
+  renderMarkers();
+}
+
+function renderRecencyCounts() {
+  const counts = {};
+  RECENCY_BUCKETS.forEach(b => counts[b.key] = 0);
+  const f = STATE.filters;
+  STATE.rows.forEach(r => {
+    if (r.statut !== 'Client') return;
+    if (f.region === 'MES' && !isMine(r.region)) return;
+    if (f.region === 'OTHER' && isMine(r.region)) return;
+    if (f.region !== 'MES' && f.region !== 'OTHER' && f.region !== 'ALL' && !sameRegion(r.region, f.region)) return;
+    counts[getRecencyBucket(r).key]++;
+  });
+  Object.entries(counts).forEach(([k, n]) => {
+    const el = document.getElementById('rcount-' + k);
+    if (el) el.textContent = n;
+  });
+}
+
+function buildStatusToggles() {
+  const el = document.getElementById('status-toggles');
+  el.innerHTML = Object.entries(STATUS_CONFIG).map(([s, cfg]) => `
+    <div class="layer-toggle ${STATE.visibleStatuses[s] ? '' : 'off'}" data-status="${s}" onclick="toggleStatus('${s}')">
+      <span class="flex items-center gap-2">
+        <span class="layer-dot" style="background: ${cfg.color};"></span>
+        <span class="text-xs font-semibold">${cfg.label}</span>
+      </span>
+      <span class="font-mono text-[10px] num-tab" id="count-${s.replace(/\s/g, '')}">—</span>
+    </div>
+  `).join('');
+}
+
+function toggleStatus(s) {
+  STATE.visibleStatuses[s] = !STATE.visibleStatuses[s];
+  document.querySelectorAll('.layer-toggle').forEach(t => {
+    if (t.dataset.status) t.classList.toggle('off', !STATE.visibleStatuses[t.dataset.status]);
+  });
+  applyFilters();
+}
+
+// ---- DATA LOAD -----------------------------------------------------------
+function loadSheet() {
+  return new Promise((resolve) => {
+    Papa.parse(SHEET_CSV_URL + '&cb=' + Date.now(), {
+      download: true, header: true, skipEmptyLines: true,
+      complete: (results) => {
+        let noCoords = 0, dupSkipped = 0, badDates = 0;
+
+        const mapped = results.data.map(row => {
+          const lat = parseFloat(row["Latitude"]);
+          const lon = parseFloat(row["Longitude"]);
+          let caRaw = String(row["CA"] || "0").replace(/\s/g, '').replace('\xa0','').replace(',', '.');
+          let statut = (row["Statut"] || "Prospect").trim();
+          if (statut === "En discussion") statut = "Discussion";
+
+          const rawContact = (row["Dernier contact"] || "").toString().trim();
+          const parsedContact = parseFrDate(rawContact);
+          if (rawContact && !parsedContact && statut === 'Client') badDates++;
+
+          return {
+            id: (row["ID"] || "").toString().trim(),
+            nom: (row["Nom Établissement"] || row["Nom"] || "Sans nom").trim(),
+            ca: parseFloat(caRaw) || 0,
+            statut,
+            type: (row["Type"] || "Autre").trim(),
+            adresse: row["Adresse Complète"] || "",
+            lat, lon,
+            ville: (row["Ville"] || "").trim(),
+            cp: (row["CP"] || "").toString().trim(),
+            dept: (row["Département"] || "").trim(),
+            region: (row["Région"] || "").trim(),
+            dernierContact: parsedContact,
+            get dernierContactTs() { return this.dernierContact ? this.dernierContact.getTime() : -Infinity; },
+            visite: (row["Visite prévue"] || "").trim(),
+            services: (row["Services"] || "").trim(),
+            doublon: (row["Vérification Doublon"] || "").trim(),
+            doublonDetails: (row["Détails Doublons"] || "").trim()
+          };
+        });
+
+        STATE.rows = mapped.filter(r => {
+          if (isNaN(r.lat) || isNaN(r.lon)) { noCoords++; return false; }
+          return true;
+        });
+
+        // Doublons : le flag du Sheet n'est fiable que sur les Prospects (le script
+        // marque parfois de vrais clients à tort). On ne jette plus la ligne : on la
+        // marque. Elle reste masquée tant que le toggle « Doublons prospects » est off.
+        STATE.rows.forEach(r => { r.isDup = (r.statut === 'Prospect' && !!r.doublon); });
+        dupSkipped = STATE.rows.filter(r => r.isDup).length;
+
+        // Diagnostic : quelles valeurs prend réellement la colonne « Vérification Doublon » ?
+        const dupValues = {};
+        STATE.rows.forEach(r => { if (r.doublon) dupValues[r.doublon] = (dupValues[r.doublon] || 0) + 1; });
+        console.log('Valeurs distinctes de « Vérification Doublon » :', dupValues);
+
+        STATE.health = {
+          total: results.data.length,
+          kept: STATE.rows.length,
+          noCoords, dupSkipped, badDates
+        };
+        renderDataHealth();
+
+        document.getElementById('last-sync').textContent = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        console.log(`✓ ${STATE.rows.length} établissements chargés`, STATE.health);
+        resolve();
+      },
+      error: (err) => { console.error('Erreur Sheet:', err); setStatus('Erreur de chargement du Sheet'); resolve(); }
+    });
+  });
+}
+
+function renderDataHealth() {
+  const h = STATE.health;
+  const el = document.getElementById('data-health');
+  if (!el) return;
+  const nb = h.kept - (STATE.showDups ? 0 : h.dupSkipped);
+  const parts = [`${nb} lignes chargées`];
+  if (h.noCoords > 0) parts.push(`${h.noCoords} sans coordonnées`);
+  if (h.dupSkipped > 0) parts.push(`${h.dupSkipped} doublons prospects ${STATE.showDups ? 'affichés' : 'masqués'}`);
+  el.textContent = parts.join(' · ');
+  el.style.color = h.noCoords > 20 ? 'var(--amber)' : 'var(--slate)';
+  if (h.badDates > 0) {
+    el.innerHTML += `<br><span style="color: var(--red); font-weight: 700;">⚠ ${h.badDates} date(s) « Dernier contact » illisible(s) — vérifier le format HubSpot</span>`;
+  }
+  el.title = `${h.total} lignes dans le CSV · ${h.kept} avec coordonnées · ${h.noCoords} sans lat/lon · ${h.dupSkipped} prospects flaggés doublon · ${h.badDates} dates non parsées (Clients)`;
+
+  const wrap = document.getElementById('dup-toggle-wrap');
+  if (wrap) {
+    wrap.style.display = h.dupSkipped > 0 ? 'flex' : 'none';
+    const c = document.getElementById('dup-count');
+    if (c) c.textContent = `(${h.dupSkipped})`;
+  }
+}
+
+function toggleDups(on) {
+  STATE.showDups = on;
+  renderDataHealth();
+  applyFilters();
+}
+
+// ---- FACTURATION SELLSY (onglet "Sellsy propre") -----------------------
+function parseNumFr(v) {
+  if (v === null || v === undefined) return 0;
+  let str = String(v).replace(/\s/g, '').replace(/\u00a0/g, '').replace(/€/g, '').replace(',', '.');
+  const n = parseFloat(str);
+  return isNaN(n) ? 0 : n;
+}
+function parseDateAny(v) {
+  if (!v) return null;
+  const str = String(v).trim();
+  if (!str) return null;
+  let m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) { const d = new Date(+m[3], +m[2] - 1, +m[1]); return isNaN(d.getTime()) ? null : d; }
+  m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) { const d = new Date(+m[1], +m[2] - 1, +m[3]); return isNaN(d.getTime()) ? null : d; }
+  if (/^\d+(\.\d+)?$/.test(str)) { const d = new Date(Date.UTC(1899, 11, 30) + parseFloat(str) * 86400000); return isNaN(d.getTime()) ? null : d; }
+  const d = new Date(str); return isNaN(d.getTime()) ? null : d;
+}
+
+function loadSellsy() {
+  return new Promise((resolve) => {
+    Papa.parse(SELLSY_CSV_URL + '&cb=' + Date.now(), {
+      download: true, header: true, skipEmptyLines: true,
+      complete: (res) => {
+        const byClient = {};
+        (res.data || []).forEach(r => {
+          if ((r["À compter"] || '').trim() !== 'Oui') return;          // on ignore devis / proforma / brouillon
+          const id = (r["ID Sellsy"] || '').toString().trim();
+          if (!id) return;
+          const ca = parseNumFr(r["CA facturé (€)"]);
+          const caAnnee = parseNumFr(r["CA année en cours (€)"]);
+          const mrrM = parseNumFr(r["MRR mensuel (€)"]);
+          const mrrA = parseNumFr(r["MRR annualisé (€)"]);
+          const isMrr = (r["MRR ?"] || '').trim() === 'Oui';
+          const debut = parseDateAny(r["Début service"]);
+          const fin = parseDateAny(r["Fin service"]);
+          if (!byClient[id]) byClient[id] = { id, nom: (r["Client"] || '').trim(), caFacture: 0, caAnnee: 0, mrrMensuel: 0, lines: [] };
+          const c = byClient[id];
+          c.caFacture += ca; c.caAnnee += caAnnee; c.mrrMensuel += mrrM;
+          c.lines.push({
+            produit: (r["Produit"] || '').trim(), famille: (r["Famille"] || '').trim(),
+            ref: (r["Réf produit"] || '').trim(), isMrr, qte: parseNumFr(r["Qté"]),
+            ca, mrrMensuel: mrrM, mrrAnnuel: mrrA, debut, fin,
+            doc: (r["N° document"] || '').trim(), typeDoc: (r["Type doc"] || '').trim()
+          });
+        });
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        Object.values(byClient).forEach(c => {
+          const futureEnds = c.lines.filter(l => l.isMrr && l.fin && l.fin >= today).map(l => l.fin.getTime());
+          const allEnds = c.lines.filter(l => l.isMrr && l.fin).map(l => l.fin.getTime());
+          c.prochaineEcheance = futureEnds.length ? new Date(Math.min(...futureEnds)) : null;
+          c.derniereFin = allEnds.length ? new Date(Math.max(...allEnds)) : null;
+        });
+        STATE.sellsy = { rows: res.data || [], byClient };
+        const nbClients = Object.keys(byClient).length;
+        const nbLignes = Object.values(byClient).reduce((s, c) => s + c.lines.length, 0);
+        console.log(`\u2713 Sellsy : ${nbClients} comptes facturés, ${nbLignes} lignes comptées`);
+        resolve();
+      },
+      error: (err) => { console.warn('Sellsy CSV:', err); STATE.sellsy = { rows: [], byClient: {} }; resolve(); }
+    });
+  });
+}
+
+async function loadGeoData() {
+  try {
+    const [r1, r2] = await Promise.all([fetch(GEOJSON_REGIONS), fetch(GEOJSON_DEPTS)]);
+    STATE.geoData.regions = await r1.json();
+    STATE.geoData.depts = await r2.json();
+  } catch (e) { console.warn('GeoJSON:', e); }
+}
+
+// ---- FILTERS -----------------------------------------------------------
+function populateFilters() {
+  const depts = new Set();
+  STATE.rows.forEach(r => {
+    if (isMine(r.region) && r.dept) depts.add(r.dept);
+  });
+  const deptSel = document.getElementById('filter-dept');
+  deptSel.querySelectorAll('option:not([value="ALL"])').forEach(o => o.remove());
+  [...depts].sort().forEach(d => {
+    const o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    deptSel.appendChild(o);
+  });
+
+  renderTypeFilter();
+}
+
+// Prédicat commun à tous les filtres. `ignoreTypes` sert à compter les
+// établissements par type SANS tenir compte du filtre Type lui-même
+// (sinon cocher un type ferait tomber tous les autres compteurs à 0).
+function rowMatches(r, ignoreTypes) {
+  const f = STATE.filters;
+  if (!STATE.visibleStatuses[r.statut]) return false;
+  if (r.isDup && !STATE.showDups) return false;
+
+  if (f.region === 'MES') {
+    if (!isMine(r.region)) return false;
+  } else if (f.region === 'OTHER') {
+    if (isMine(r.region)) return false;
+  } else if (f.region !== 'ALL') {
+    if (!sameRegion(r.region, f.region)) return false;
+  }
+
+  if (f.dept !== 'ALL' && r.dept !== f.dept) return false;
+  if (!ignoreTypes && STATE.selectedTypes.size > 0 && !STATE.selectedTypes.has(r.type)) return false;
+  if (f.visite && !r.visite) return false;
+  if (r.statut === 'Client' && !STATE.visibleRecency[getRecencyBucket(r).key]) return false;
+
+  if (STATE.quickView === 'visites' && !r.visite) return false;
+  if (STATE.quickView === 'pipeline' && !['Devis envoyé','Discussion'].includes(r.statut)) return false;
+
+  if (STATE.radius.center) {
+    const d = haversine(STATE.radius.center.lat, STATE.radius.center.lon, r.lat, r.lon);
+    if (d > STATE.radius.km) return false;
+  }
+  return true;
+}
+
+// La liste des types affichés = uniquement les types réellement présents dans
+// le périmètre courant (région, département, statuts visibles, rayon…), avec
+// le nombre d'établissements en face. Plus de types fantômes à 0.
+function renderTypeFilter() {
+  const counts = {};
+  STATE.rows.forEach(r => {
+    if (!rowMatches(r, true)) return;
+    const t = r.type || 'Autre';
+    counts[t] = (counts[t] || 0) + 1;
+  });
+  // Un type coché qui devient vide reste visible, sinon impossible de le décocher
+  STATE.selectedTypes.forEach(t => { if (!(t in counts)) counts[t] = 0; });
+
+  const tEl = document.getElementById('filter-types');
+  if (!tEl) return;
+  const list = Object.keys(counts).sort((a, b) => a.localeCompare(b, 'fr'));
+
+  if (list.length === 0) {
+    tEl.innerHTML = `<div class="text-[10px] italic px-2 py-1" style="color: var(--slate);">Aucun type dans ce périmètre</div>`;
+    return;
+  }
+
+  tEl.innerHTML = list.map(t => `
+    <label>
+      <input type="checkbox" value="${escapeHtml(t)}" ${STATE.selectedTypes.has(t) ? 'checked' : ''} onchange="toggleType(this)">
+      <span class="flex-1 truncate">${escapeHtml(t)}</span>
+      <span class="font-mono text-[10px] num-tab" style="color: var(--slate);">${counts[t]}</span>
+    </label>
+  `).join('');
+}
+
+function toggleType(checkbox) {
+  if (checkbox.checked) STATE.selectedTypes.add(checkbox.value);
+  else STATE.selectedTypes.delete(checkbox.value);
+  applyFilters();
+}
+
+function applyFilters() {
+  const f = STATE.filters;
+  f.region = document.getElementById('filter-region').value;
+  f.dept = document.getElementById('filter-dept').value;
+  f.visite = document.getElementById('filter-visite').checked;
+
+  STATE.filtered = STATE.rows.filter(r => rowMatches(r, false));
+
+  if (STATE.quickView === 'topca') {
+    STATE.filtered = [...STATE.filtered].sort((a,b) => b.ca - a.ca).slice(0, 20);
+  }
+
+  // Toute modif de filtre invalide une tournée déjà calculée
+  if (STATE.tour.active) {
+    STATE.tour.active = false;
+    STATE.tour.stops = [];
+    document.getElementById('clear-tour')?.classList.add('hidden');
+    document.getElementById('tour-summary')?.classList.add('hidden');
+    document.getElementById('tour-stats')?.classList.add('hidden');
+    document.getElementById('tour-gmaps-links')?.classList.add('hidden');
+    if (document.getElementById('tour-gmaps-links')) document.getElementById('tour-gmaps-links').innerHTML = '';
+  }
+
+  renderMarkers();
+  renderTable();
+  renderKPIs();
+  renderStatusCounts();
+  renderRecencyCounts();
+  renderQuickViewCounts();
+  renderComptes();
+  renderTypeFilter();
+}
+
+function resetFilters() {
+  document.getElementById('filter-region').value = 'MES';
+  document.getElementById('filter-dept').value = 'ALL';
+  document.getElementById('filter-visite').checked = false;
+  STATE.selectedTypes.clear();
+  document.querySelectorAll('#filter-types input').forEach(c => c.checked = false);
+  RECENCY_BUCKETS.forEach(b => STATE.visibleRecency[b.key] = true);
+  document.querySelectorAll('[data-recency]').forEach(t => t.classList.remove('off'));
+  STATE.quickView = null;
+  document.querySelectorAll('.quick-view').forEach(b => b.classList.remove('active'));
+  applyFilters();
+}
+
+function applyQuickView(name) {
+  STATE.quickView = (STATE.quickView === name) ? null : name;
+  document.querySelectorAll('.quick-view').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === STATE.quickView);
+  });
+  applyFilters();
+}
+
+function renderStatusCounts() {
+  const counts = {};
+  Object.keys(STATUS_CONFIG).forEach(s => counts[s] = 0);
+  const f = STATE.filters;
+  STATE.rows.forEach(r => {
+    if (r.isDup && !STATE.showDups) return;
+    if (f.region === 'MES' && !isMine(r.region)) return;
+    if (f.region === 'OTHER' && isMine(r.region)) return;
+    if (f.region !== 'MES' && f.region !== 'OTHER' && f.region !== 'ALL' && !sameRegion(r.region, f.region)) return;
+    counts[r.statut] = (counts[r.statut] || 0) + 1;
+  });
+  Object.entries(counts).forEach(([s, n]) => {
+    const el = document.getElementById('count-' + s.replace(/\s/g, ''));
+    if (el) el.textContent = n;
+  });
+}
+
+function renderQuickViewCounts() {
+  const f = STATE.filters;
+  const inScope = STATE.rows.filter(r => {
+    if (r.isDup && !STATE.showDups) return false;
+    if (f.region === 'MES') return isMine(r.region);
+    if (f.region === 'OTHER') return !isMine(r.region);
+    if (f.region !== 'ALL') return sameRegion(r.region, f.region);
+    return true;
+  });
+  document.getElementById('qv-visites').textContent = inScope.filter(r => r.visite).length;
+  document.getElementById('qv-topca').textContent = Math.min(20, inScope.length);
+  document.getElementById('qv-pipeline').textContent = inScope.filter(r => ['Devis envoyé','Discussion'].includes(r.statut)).length;
+}
+
+// ---- MARKERS -----------------------------------------------------------
+function renderMarkers() {
+  STATE.markersLayer.clearLayers();
+  STATE.tourLayer.clearLayers();
+
+  if (STATE.tour.active) {
+    renderTourMarkers();
+    return;
+  }
+
+  // Regrouper par position exacte (multi-établissements à la même adresse)
+  const groups = {};
+  STATE.filtered.forEach(r => {
+    const key = `${r.lat.toFixed(5)},${r.lon.toFixed(5)}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  });
+
+  const groupList = Object.values(groups);
+  const useCanvas = STATE.filtered.length > CANVAS_THRESHOLD;
+  const popupOpts = { className: 'custom-popup', maxWidth: Math.min(340, window.innerWidth - 60) };
+
+  groupList.forEach(group => {
+    const main = group[0];
+    const cfg = STATE.colorMode === 'recence'
+      ? (getRecencyBucket(main) || STATUS_CONFIG[main.statut] || { color: '#9FB2C8' })
+      : (STATUS_CONFIG[main.statut] || { color: '#9FB2C8' });
+
+    let marker;
+    if (useCanvas) {
+      // Mode performance : points peints sur canvas (fluide jusqu'à 5000+ points)
+      marker = L.circleMarker([main.lat, main.lon], {
+        renderer: STATE.canvasRenderer,
+        radius: group.length > 1 ? 8 : 5,
+        fillColor: cfg.color, fillOpacity: 0.95,
+        color: main.isDup ? '#ED8936' : '#ffffff', weight: main.isDup ? 2.5 : 1.5
+      });
+    } else {
+      const html = group.length > 1
+        ? `<div class="marker-cluster" style="width: 22px; height: 22px;">${group.length}</div>`
+        : `<div class="marker-dot${main.isDup ? ' marker-dup' : ''}" style="background: ${cfg.color};"></div>`;
+      const icon = L.divIcon({
+        className: '',
+        html,
+        iconSize: group.length > 1 ? [22, 22] : [14, 14],
+        iconAnchor: group.length > 1 ? [11, 11] : [7, 7]
+      });
+      marker = L.marker([main.lat, main.lon], { icon });
+    }
+    marker.bindPopup(buildPopup(group), popupOpts);
+    STATE.markersLayer.addLayer(marker);
+  });
+}
+
+function buildPopup(group) {
+  return group.map((r, idx) => {
+    const cfg = STATUS_CONFIG[r.statut] || {};
+    const rec = getRecencyBucket(r);
+    const sep = idx > 0 ? '<div style="height: 1px; background: var(--line); margin: 14px 0;"></div>' : '';
+    return sep + `
+      <div style="background: var(--blue); color: var(--paper); padding: 14px 16px;">
+        <div class="flex items-center justify-between gap-2">
+          <span class="pill ${cfg.pillClass||''}">${escapeHtml(r.statut)}</span>
+          ${r.visite ? `<span class="pill pill-blue">📅 ${escapeHtml(r.visite)}</span>` : ''}
+        </div>
+        <div class="font-mono text-[9px] mt-2" style="color: var(--sky-2);">ID ${escapeHtml(r.id)}</div>
+        <div class="font-display font-medium text-base mt-0.5 leading-tight">${escapeHtml(r.nom)}</div>
+        <div class="text-[11px] mt-0.5" style="color: var(--sky-2);">
+          ${escapeHtml(r.type)} · ${escapeHtml(r.ville)} · ${escapeHtml(properRegion(r.region))}
+        </div>
+      </div>
+      <div style="padding: 12px 16px;">
+        ${r.isDup ? `
+        <div class="text-[10px] mb-3 p-2" style="background: #FCEEDF; color: #C05621; border-radius: 10px;">
+          <b>⚠ Doublon présumé</b> (masqué par défaut)
+          ${r.doublonDetails ? `<br><span style="opacity: 0.85;">${escapeHtml(r.doublonDetails)}</span>` : ''}
+        </div>` : ''}
+
+        ${r.ca > 0 ? `
+        <div class="mb-3 pb-3" style="border-bottom: 1px solid var(--line);">
+          <div class="stat-label">CA annuel</div>
+          <div class="font-display font-semibold text-2xl num-tab">${Math.round(r.ca).toLocaleString('fr-FR')} €</div>
+        </div>` : ''}
+
+        ${rec ? `
+        <div class="text-[11px] mb-3 flex items-center gap-2">
+          <span style="width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: ${rec.color};"></span>
+          <span class="font-semibold">Dernier contact :</span>
+          <span style="color: var(--slate);">${r.dernierContact ? r.dernierContact.toLocaleDateString('fr-FR') : 'jamais'} <span class="text-[9px]">(${rec.label})</span></span>
+        </div>` : ''}
+
+        ${r.adresse ? `
+        <div class="text-[10px] mb-3" style="color: var(--slate);">${escapeHtml(r.adresse)}</div>
+        ` : ''}
+
+        ${r.services ? `
+        <div class="text-[10px] mb-3">
+          <span class="stat-label">Services</span><br>
+          <span style="color: var(--ink);">${escapeHtml(r.services)}</span>
+        </div>` : ''}
+
+        <div class="mt-3">
+          <a href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lon}" target="_blank" class="btn-primary block text-[10px] uppercase tracking-wider font-bold py-2 text-center">→ Itinéraire</a>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ---- TOURNÉE -------------------------------------------------------------
+const TOUR_DAY_COLORS = ['#2A5C9C', '#43A047', '#7E57C2', '#ED8936', '#E05252'];
+
+function optimizeRoute(items, start) {
+  const remaining = [...items];
+  const route = [];
+  let current = start;
+  while (remaining.length > 0) {
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const d = haversine(current.lat, current.lon, remaining[i].lat, remaining[i].lon);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    const next = remaining.splice(bestIdx, 1)[0];
+    route.push(next);
+    current = next;
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    let improved = false;
+    for (let i = 0; i < route.length - 1; i++) {
+      for (let j = i + 2; j < route.length; j++) {
+        const a = i === 0 ? start : route[i - 1];
+        const b = route[i];
+        const c = route[j];
+        const d = j === route.length - 1 ? null : route[j + 1];
+        const d1 = haversine(a.lat, a.lon, b.lat, b.lon) + (d ? haversine(c.lat, c.lon, d.lat, d.lon) : 0);
+        const d2 = haversine(a.lat, a.lon, c.lat, c.lon) + (d ? haversine(b.lat, b.lon, d.lat, d.lon) : 0);
+        if (d2 < d1 - 0.01) {
+          const seg = route.slice(i, j + 1).reverse();
+          route.splice(i, j - i + 1, ...seg);
+          improved = true;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  let prev = start;
+  route.forEach(r => { r._distFromPrev = haversine(prev.lat, prev.lon, r.lat, r.lon); prev = r; });
+  return route;
+}
+
+function splitIntoDays(route, days, perDay) {
+  const total = Math.min(route.length, days * perDay);
+  const actualPerDay = Math.ceil(total / days);
+  const result = [];
+  for (let i = 0; i < total; i++) {
+    const r = route[i];
+    r._day = Math.floor(i / actualPerDay) + 1;
+    r._order = i + 1;
+    result.push(r);
+  }
+  return result;
+}
+
+function planTour() {
+  if (!STATE.radius.center) {
+    alert("Définis d'abord un point de départ : cherche une ville dans la barre du haut puis « Utiliser le dernier lieu recherché », ou clique sur « Ma position », ou active la sélection libre et clique sur la carte.");
+    return;
+  }
+  if (STATE.filtered.length === 0) {
+    alert("Aucun établissement dans la sélection actuelle. Ajuste tes filtres d'abord.");
+    return;
+  }
+  const days = Math.max(1, parseInt(document.getElementById('tour-days').value) || 1);
+  const perDay = Math.max(1, parseInt(document.getElementById('tour-perday').value) || 10);
+  const returnHome = document.getElementById('tour-return').checked;
+  const start = STATE.radius.center;
+
+  const pool = STATE.filtered.map(r => ({ ...r }));
+  const route = optimizeRoute(pool, start);
+  let stops = splitIntoDays(route, days, perDay);
+
+  let returnKm = 0;
+  if (returnHome) {
+    // Chaque journée devient une boucle : départ → visites → retour au départ.
+    // On garde la répartition géographique du découpage global, puis on
+    // ré-optimise chaque journée depuis le point de départ.
+    const byDay = {};
+    stops.forEach(r => { (byDay[r._day] = byDay[r._day] || []).push(r); });
+    const rebuilt = [];
+    let order = 1;
+    Object.keys(byDay).map(Number).sort((a, b) => a - b).forEach(d => {
+      const dayRoute = optimizeRoute(byDay[d], start);
+      dayRoute.forEach(r => { r._day = d; r._order = order++; rebuilt.push(r); });
+      const last = dayRoute[dayRoute.length - 1];
+      returnKm += haversine(last.lat, last.lon, start.lat, start.lon);
+    });
+    stops = rebuilt;
+  }
+
+  STATE.tour.stops = stops;
+  STATE.tour.returnHome = returnHome;
+  STATE.tour.returnKm = returnKm;
+  STATE.tour.active = true;
+
+  renderMarkers();
+  renderTable();
+  updateTourSummary();
+  document.getElementById('clear-tour').classList.remove('hidden');
+}
+
+function clearTour() {
+  STATE.tour.active = false;
+  STATE.tour.stops = [];
+  STATE.tour.returnKm = 0;
+  document.getElementById('clear-tour').classList.add('hidden');
+  document.getElementById('tour-summary').classList.add('hidden');
+  document.getElementById('tour-stats').classList.add('hidden');
+  document.getElementById('tour-gmaps-links').classList.add('hidden');
+  document.getElementById('tour-gmaps-links').innerHTML = '';
+  renderMarkers();
+  renderTable();
+}
+
+function updateTourSummary() {
+  if (!STATE.tour.active) return;
+  const legsKm = STATE.tour.stops.reduce((s, r) => s + (r._distFromPrev || 0), 0);
+  const totalKm = legsKm + STATE.tour.returnKm;
+  const nDays = new Set(STATE.tour.stops.map(r => r._day)).size;
+  document.getElementById('tour-km').textContent = Math.round(totalKm) + ' km';
+  document.getElementById('tour-stops').textContent = STATE.tour.stops.length + ' / ' + nDays + ' j';
+  document.getElementById('tour-stats').classList.remove('hidden');
+  const el = document.getElementById('tour-summary');
+  el.textContent = `${STATE.tour.stops.length} visites · ${nDays} jour(s) · ${Math.round(totalKm)} km`
+    + (STATE.tour.returnHome ? ` (retours au départ inclus)` : '');
+  el.classList.remove('hidden');
+  renderTourGmapsLinks();
+}
+
+// Google Maps limite un itinéraire à ~10 étapes (départ + arrivée + waypoints).
+// Au-delà, le lien est généré quand même mais peut être tronqué par Google.
+const GMAPS_MAX_STOPS = 10;
+
+function buildGmapsUrl(start, stops, returnHome) {
+  const origin = `${start.lat},${start.lon}`;
+  const destination = returnHome ? origin : `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
+  const waypointStops = returnHome ? stops : stops.slice(0, -1);
+  const params = new URLSearchParams({
+    api: '1', origin, destination, travelmode: 'driving'
+  });
+  if (waypointStops.length > 0) {
+    params.set('waypoints', waypointStops.map(r => `${r.lat},${r.lon}`).join('|'));
+  }
+  return 'https://www.google.com/maps/dir/?' + params.toString();
+}
+
+function renderTourGmapsLinks() {
+  const container = document.getElementById('tour-gmaps-links');
+  if (!container) return;
+  if (!STATE.tour.active || !STATE.radius.center) { container.innerHTML = ''; container.classList.add('hidden'); return; }
+
+  const byDay = {};
+  STATE.tour.stops.forEach(r => { (byDay[r._day] = byDay[r._day] || []).push(r); });
+  const start = STATE.radius.center;
+
+  const html = Object.keys(byDay).map(Number).sort((a, b) => a - b).map(day => {
+    const stops = byDay[day];
+    const url = buildGmapsUrl(start, stops, STATE.tour.returnHome);
+    const nStops = stops.length + 1; // + départ (arrivée déjà comptée dans stops si pas retour)
+    const warn = nStops > GMAPS_MAX_STOPS
+      ? `<div class="text-[9px] mt-0.5" style="color: var(--red);">⚠ ${stops.length} visites : au-delà de ~${GMAPS_MAX_STOPS - 1} étapes, Google peut tronquer l'itinéraire.</div>`
+      : '';
+    return `
+      <a href="${url}" target="_blank" class="btn-outline w-full py-2 text-[11px] font-bold block text-center mt-2">
+        🗺️ Jour ${day} — ouvrir dans Google Maps (${stops.length} visites)
+      </a>${warn}`;
+  }).join('');
+
+  container.innerHTML = html;
+  container.classList.remove('hidden');
+}
+
+function renderTourMarkers() {
+  const bounds = [];
+  const c = STATE.radius.center;
+  const popupOpts = { className: 'custom-popup', maxWidth: Math.min(340, window.innerWidth - 60) };
+
+  if (c) {
+    const icon = L.divIcon({
+      className: '', html: `<div class="tour-pin start"><span>★</span></div>`,
+      iconSize: [28, 28], iconAnchor: [14, 28]
+    });
+    const m = L.marker([c.lat, c.lon], { icon });
+    m.bindPopup(`<div style="padding: 10px 14px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">Point de départ${STATE.startLabel ? ' · ' + escapeHtml(STATE.startLabel) : ''}</div>`);
+    STATE.markersLayer.addLayer(m);
+    bounds.push([c.lat, c.lon]);
+  }
+
+  STATE.tour.stops.forEach(r => {
+    const color = TOUR_DAY_COLORS[(r._day - 1) % TOUR_DAY_COLORS.length];
+    const icon = L.divIcon({
+      className: '', html: `<div class="tour-pin" style="background: ${color};"><span>${r._order}</span></div>`,
+      iconSize: [24, 24], iconAnchor: [12, 24]
+    });
+    const marker = L.marker([r.lat, r.lon], { icon });
+    const infoBand = `<div style="padding: 8px 16px; font-family: 'JetBrains Mono', monospace; font-size: 10px; background: var(--sky); border-top: 1px solid var(--line);">Jour ${r._day} · Étape ${r._order} · +${r._distFromPrev.toFixed(1)} km</div>`;
+    marker.bindPopup(buildPopup([r]) + infoBand, popupOpts);
+    STATE.markersLayer.addLayer(marker);
+    bounds.push([r.lat, r.lon]);
+  });
+
+  // Tracé par jour
+  const byDay = {};
+  STATE.tour.stops.forEach(r => { (byDay[r._day] = byDay[r._day] || []).push(r); });
+
+  if (STATE.tour.returnHome && c) {
+    // Boucles : départ → visites du jour → départ
+    Object.entries(byDay).forEach(([day, stops]) => {
+      const color = TOUR_DAY_COLORS[(parseInt(day) - 1) % TOUR_DAY_COLORS.length];
+      const pts = [[c.lat, c.lon], ...stops.map(r => [r.lat, r.lon]), [c.lat, c.lon]];
+      L.polyline(pts, { color, weight: 2.5, opacity: 0.75, dashArray: day == 1 ? null : '6,6' }).addTo(STATE.tourLayer);
+    });
+  } else {
+    // Chaîne continue : chaque jour part du dernier point du jour précédent
+    let prevPt = c;
+    const chain = {};
+    STATE.tour.stops.forEach(r => {
+      if (!chain[r._day]) chain[r._day] = [];
+      if (prevPt) chain[r._day].push([prevPt.lat, prevPt.lon]);
+      chain[r._day].push([r.lat, r.lon]);
+      prevPt = r;
+    });
+    Object.entries(chain).forEach(([day, pts]) => {
+      const color = TOUR_DAY_COLORS[(parseInt(day) - 1) % TOUR_DAY_COLORS.length];
+      L.polyline(pts, { color, weight: 2.5, opacity: 0.75, dashArray: day == 1 ? null : '6,6' }).addTo(STATE.tourLayer);
+    });
+  }
+
+  if (bounds.length) STATE.map.fitBounds(bounds, { padding: [40, 40] });
+}
+
+// ---- KPIs --------------------------------------------------------------
+function renderKPIs() {
+  const data = STATE.filtered;
+  document.getElementById('visible-count').textContent = `${data.length} affichés`;
+
+  let caClients = 0, caPipe = 0;
+  const byStatus = { Client: 0, 'Devis envoyé': 0, Discussion: 0, Prospect: 0 };
+  data.forEach(r => {
+    if (r.statut === 'Client') caClients += r.ca;
+    else if (r.statut === 'Devis envoyé' || r.statut === 'Discussion') caPipe += r.ca;
+    if (byStatus.hasOwnProperty(r.statut)) byStatus[r.statut]++;
+  });
+
+  document.getElementById('kpi-ca-clients').textContent = Math.round(caClients).toLocaleString('fr-FR') + ' €';
+  document.getElementById('kpi-ca-pipe').textContent = Math.round(caPipe).toLocaleString('fr-FR') + ' €';
+  document.getElementById('kpi-clients').textContent = byStatus['Client'];
+  document.getElementById('kpi-devis').textContent = byStatus['Devis envoyé'];
+  document.getElementById('kpi-disc').textContent = byStatus['Discussion'];
+  document.getElementById('kpi-prosp').textContent = byStatus['Prospect'];
+}
+
+// ---- TABLE -------------------------------------------------------------
+function renderTable() {
+  const body = document.getElementById('table-body');
+  const isTour = STATE.tour.active;
+  const source = isTour ? STATE.tour.stops : STATE.filtered;
+
+  document.getElementById('table-count').textContent = source.length;
+  document.getElementById('table-title').textContent = isTour ? 'Tournée optimisée' : 'Sélection';
+
+  const sorted = isTour
+    ? [...source].sort((a, b) => a._order - b._order)
+    : [...source].sort((a, b) => {
+        const dir = STATE.sort.dir === 'desc' ? -1 : 1;
+        let av = a[STATE.sort.field] ?? -Infinity;
+        let bv = b[STATE.sort.field] ?? -Infinity;
+        if (typeof av === 'string') return dir * av.localeCompare(bv);
+        return dir * (av - bv);
+      });
+
+  body.innerHTML = sorted.slice(0, 200).map(r => {
+    const cfg = STATUS_CONFIG[r.statut] || {};
+    const rec = getRecencyBucket(r);
+    const dayCell = isTour ? `#${r._order} · J${r._day}` : '—';
+    const kmCell = isTour ? `+${r._distFromPrev.toFixed(1)} km` : '—';
+    const contactCell = rec
+      ? `<span style="width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: ${rec.color}; margin-right: 5px;"></span>${r.dernierContact ? r.dernierContact.toLocaleDateString('fr-FR') : 'jamais'}`
+      : '—';
+    return `
+      <tr class="row-clickable" data-id="${escapeHtml(r.id)}" style="border-bottom: 1px solid var(--line);" onclick="zoomToMarker('${escapeHtml(r.id)}', ${r.lat}, ${r.lon})">
+        <td class="px-4 py-2 font-semibold">${r.isDup ? '<span title="Doublon présumé" style="color: var(--amber);">⚠ </span>' : ''}${escapeHtml(r.nom)}</td>
+        <td class="px-4 py-2" style="color: var(--slate);">${escapeHtml(r.ville)}</td>
+        <td class="px-4 py-2 text-[10px] uppercase" style="color: var(--slate);">${escapeHtml(r.type)}</td>
+        <td class="px-4 py-2"><span class="pill ${cfg.pillClass||''}">${escapeHtml(r.statut)}</span></td>
+        <td class="px-4 py-2 text-[11px]" style="color: var(--slate);">${contactCell}</td>
+        <td class="px-4 py-2 text-right font-mono num-tab">${r.ca > 0 ? Math.round(r.ca).toLocaleString('fr-FR') + ' €' : '—'}</td>
+        <td class="px-4 py-2 text-center font-mono num-tab text-[10px]">${dayCell}</td>
+        <td class="px-4 py-2 text-right font-mono num-tab text-[10px]">${kmCell}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function sortTable(field) {
+  if (STATE.tour.active) return;
+  if (STATE.sort.field === field) STATE.sort.dir = STATE.sort.dir === 'desc' ? 'asc' : 'desc';
+  else { STATE.sort.field = field; STATE.sort.dir = 'desc'; }
+  renderTable();
+}
+
+function zoomToMarker(id, lat, lon) {
+  STATE.map.setView([lat, lon], 14);
+  STATE.markersLayer.eachLayer(ml => {
+    const ll = ml.getLatLng();
+    if (Math.abs(ll.lat - lat) < 0.001 && Math.abs(ll.lng - lon) < 0.001) ml.openPopup();
+  });
+}
+
+// ---- PORTFOLIO ---------------------------------------------------------
+function renderPortfolio() {
+  const data = STATE.filtered;
+  const caC = data.filter(r => r.statut === 'Client').reduce((s,r) => s + r.ca, 0);
+  const caD = data.filter(r => r.statut === 'Devis envoyé').reduce((s,r) => s + r.ca, 0);
+  const caDi = data.filter(r => r.statut === 'Discussion').reduce((s,r) => s + r.ca, 0);
+  const caT = caC + caD + caDi;
+
+  set('port-ca-clients', Math.round(caC).toLocaleString('fr-FR') + ' €');
+  set('port-ca-devis', Math.round(caD).toLocaleString('fr-FR') + ' €');
+  set('port-ca-disc', Math.round(caDi).toLocaleString('fr-FR') + ' €');
+  set('port-ca-total', Math.round(caT).toLocaleString('fr-FR') + ' €');
+
+  const top = [...data].sort((a,b) => b.ca - a.ca).slice(0, 10);
+  document.getElementById('top-clients-body').innerHTML = top.map((r, i) => {
+    const cfg = STATUS_CONFIG[r.statut] || {};
+    return `
+      <tr class="row-clickable" style="border-bottom: 1px solid var(--line);" onclick="switchTab('map'); setTimeout(() => zoomToMarker('${escapeHtml(r.id)}', ${r.lat}, ${r.lon}), 200);">
+        <td class="py-2 pr-2 font-mono text-[10px]" style="color: var(--slate); width: 24px;">${(i+1).toString().padStart(2,'0')}</td>
+        <td class="py-2 pr-2">
+          <div class="font-semibold text-[12px]">${escapeHtml(r.nom)}</div>
+          <div class="text-[10px]" style="color: var(--slate);">
+            <span class="pill ${cfg.pillClass||''}" style="font-size: 8px; padding: 1px 6px;">${escapeHtml(r.statut)}</span>
+            · ${escapeHtml(r.type)} · ${escapeHtml(r.ville)}
+          </div>
+        </td>
+        <td class="py-2 text-right font-mono font-bold num-tab">${Math.round(r.ca).toLocaleString('fr-FR')} €</td>
+      </tr>
+    `;
+  }).join('');
+
+  const visites = data.filter(r => r.visite).sort((a,b) => (a.visite || '').localeCompare(b.visite || ''));
+  document.getElementById('visites-body').innerHTML = visites.length ? visites.slice(0, 10).map(r => `
+    <tr class="row-clickable" style="border-bottom: 1px solid var(--line);" onclick="switchTab('map'); setTimeout(() => zoomToMarker('${escapeHtml(r.id)}', ${r.lat}, ${r.lon}), 200);">
+      <td class="py-2 pr-2 font-mono text-[10px]" style="color: var(--blue); width: 80px;">${escapeHtml(r.visite)}</td>
+      <td class="py-2 pr-2">
+        <div class="font-semibold text-[12px]">${escapeHtml(r.nom)}</div>
+        <div class="text-[10px]" style="color: var(--slate);">${escapeHtml(r.ville)} · ${escapeHtml(r.type)}</div>
+      </td>
+      <td class="py-2 text-right font-mono num-tab text-[11px]">${r.ca > 0 ? Math.round(r.ca).toLocaleString('fr-FR') + ' €' : '—'}</td>
+    </tr>
+  `).join('') : '<tr><td class="py-4 text-xs italic" style="color: var(--slate);">Aucune visite prévue dans le périmètre filtré</td></tr>';
+
+  const byType = {};
+  data.forEach(r => {
+    if (!byType[r.type]) byType[r.type] = { n: 0, ca: 0, clients: 0 };
+    byType[r.type].n++;
+    byType[r.type].ca += r.ca;
+    if (r.statut === 'Client') byType[r.type].clients++;
+  });
+  document.getElementById('types-grid').innerHTML = Object.entries(byType)
+    .filter(([t]) => t !== 'Autre')
+    .sort((a,b) => b[1].ca - a[1].ca)
+    .slice(0, 12)
+    .map(([t, v]) => `
+      <div class="p-3 card">
+        <div class="font-display font-medium text-sm">${escapeHtml(t)}</div>
+        <div class="text-[10px] mt-1" style="color: var(--slate);">${v.n} étab. · ${v.clients} clients</div>
+        <div class="font-mono font-bold num-tab text-sm mt-1">${Math.round(v.ca).toLocaleString('fr-FR')} €</div>
+      </div>
+    `).join('');
+
+  const byRegion = {};
+  data.filter(r => r.statut === 'Client').forEach(r => {
+    const reg = properRegion(r.region);
+    if (!byRegion[reg]) byRegion[reg] = { n: 0, ca: 0 };
+    byRegion[reg].n++;
+    byRegion[reg].ca += r.ca;
+  });
+  document.getElementById('regions-grid').innerHTML = Object.entries(byRegion).sort((a,b) => b[1].ca - a[1].ca).map(([r, v]) => `
+    <div class="p-3 card" style="border-color: var(--blue-soft);">
+      <div class="font-display font-medium text-sm">${escapeHtml(r)}</div>
+      <div class="text-[10px] mt-1" style="color: var(--slate);">${v.n} clients</div>
+      <div class="font-mono font-bold num-tab text-sm mt-1" style="color: var(--green);">${Math.round(v.ca).toLocaleString('fr-FR')} €</div>
+    </div>
+  `).join('');
+}
+
+// ---- COMPTES (vue facturation par client) ------------------------------
+function onComptesSearch(v) { STATE.comptesSearch = v; renderComptes(); }
+function onComptesSort(v) { STATE.comptesSort = v; renderComptes(); }
+function toggleCompte(id) {
+  if (STATE.comptesExpanded.has(id)) { STATE.comptesExpanded.delete(id); STATE.comptesDetailExpanded.delete(id); }
+  else STATE.comptesExpanded.add(id);
+  renderComptes();
+}
+function toggleCompteDetail(id) {
+  if (STATE.comptesDetailExpanded.has(id)) STATE.comptesDetailExpanded.delete(id);
+  else STATE.comptesDetailExpanded.add(id);
+  renderComptes();
+}
+
+// Regroupe les lignes Sellsy d'un client en 4 catégories : Licences / Matériel / Formation / Autres.
+// Licences = tout ce qui est récurrent (MRR), compté "en cours" (lignes encore actives à ce jour).
+// Matériel / Formation / Autres = ponctuel, compté en cumul (avoirs déduits).
+const COMPTES_MATERIEL_FAMILLES = new Set(['Tablette', 'Casque', 'Enceinte', 'Chargeur']);
+const COMPTES_CATEGORIES = [
+  { key: 'Licences',  icon: 'license',        bg: '#EEEDFE', fg: '#3C3489', sub: '#7F77DD' },
+  { key: 'Matériel',  icon: 'headphones',     bg: '#E6F1FB', fg: '#0C447C', sub: '#378ADD' },
+  { key: 'Formation', icon: 'school',         bg: '#FAEEDA', fg: '#854F0B', sub: '#BA7517' },
+  { key: 'Autres',    icon: 'package',        bg: '#F1EFE8', fg: '#444441', sub: '#888780' }
+];
+function categorieLigne(l) {
+  if (l.isMrr) return 'Licences';
+  const f = l.famille || '';
+  if (COMPTES_MATERIEL_FAMILLES.has(f)) return 'Matériel';
+  if (f === 'Formation') return 'Formation';
+  return 'Autres';
+}
+function qteSignee(l) { const q = l.qte || 0; return l.typeDoc === 'Avoir' ? -q : q; }
+function recapCategories(s, today) {
+  const groupes = {};
+  s.lines.forEach(l => { const c = categorieLigne(l); (groupes[c] = groupes[c] || []).push(l); });
+  const out = [];
+  COMPTES_CATEGORIES.forEach(cat => {
+    const lignes = groupes[cat.key];
+    if (!lignes || !lignes.length) return;
+    let qte, tag = '', echu = false;
+    if (cat.key === 'Licences') {
+      const actives = lignes.filter(l => !l.fin || l.fin >= today);
+      if (actives.length) {
+        qte = actives.reduce((a, l) => a + qteSignee(l), 0);
+        if (qte <= 0) qte = actives.length;
+        tag = 'en cours';
+      } else {
+        const fins = lignes.filter(l => l.fin).map(l => l.fin.getTime());
+        const maxFin = fins.length ? Math.max(...fins) : null;
+        const dernieres = maxFin ? lignes.filter(l => l.fin && l.fin.getTime() === maxFin) : lignes;
+        qte = dernieres.reduce((a, l) => a + qteSignee(l), 0);
+        if (qte <= 0) qte = dernieres.length;
+        tag = 'échu'; echu = true;
+      }
+    } else {
+      qte = lignes.reduce((a, l) => a + qteSignee(l), 0);
+      if (qte <= 0) qte = lignes.length;
+    }
+    out.push({ cat, qte: Math.round(qte), tag, echu });
+  });
+  return out;
+}
+
+function renderComptes() {
+  const listEl = document.getElementById('comptes-list');
+  if (!listEl) return;
+  const bc = (STATE.sellsy && STATE.sellsy.byClient) || {};
+
+  // Établissements passant les filtres courants ET ayant de la facturation Sellsy
+  let items = STATE.filtered
+    .map(r => ({ row: r, s: bc[r.id] }))
+    .filter(x => x.s && x.s.lines.length > 0);
+
+  const q = normStr(STATE.comptesSearch || '');
+  if (q) items = items.filter(x => normStr(x.row.nom).includes(q) || normStr(x.row.ville).includes(q));
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const sortKey = STATE.comptesSort || 'caAnnee';
+  items.sort((a, b) => {
+    if (sortKey === 'echeance') {
+      const ea = a.s.prochaineEcheance ? a.s.prochaineEcheance.getTime() : Infinity;
+      const eb = b.s.prochaineEcheance ? b.s.prochaineEcheance.getTime() : Infinity;
+      return ea - eb;
+    }
+    return (b.s[sortKey] || 0) - (a.s[sortKey] || 0);
+  });
+
+  const tot = items.reduce((acc, x) => { acc.f += x.s.caFacture; acc.a += x.s.caAnnee; acc.m += x.s.mrrMensuel; return acc; }, { f: 0, a: 0, m: 0 });
+  set('comptes-ca-facture', Math.round(tot.f).toLocaleString('fr-FR') + ' €');
+  set('comptes-ca-annee', Math.round(tot.a).toLocaleString('fr-FR') + ' €');
+  set('comptes-mrr', Math.round(tot.m).toLocaleString('fr-FR') + ' €');
+  set('comptes-count', items.length);
+
+  // Comptes facturés mais absents de la base (hors périmètre / ID non référencé)
+  const inBase = new Set(STATE.rows.map(r => r.id));
+  const horsBase = Object.keys(bc).filter(id => !inBase.has(id));
+  const hb = document.getElementById('comptes-hors-base');
+  if (hb) {
+    if (horsBase.length) {
+      hb.textContent = `\u2139 ${horsBase.length} compte(s) facturé(s) dans Sellsy sont absents de ta base (hors périmètre ou ID non référencé) — non affichés ici.`;
+      hb.classList.remove('hidden');
+    } else hb.classList.add('hidden');
+  }
+
+  const emptyEl = document.getElementById('comptes-empty');
+  if (emptyEl) emptyEl.classList.toggle('hidden', items.length > 0);
+
+  listEl.innerHTML = items.map(x => renderCompteCard(x.row, x.s, today)).join('');
+}
+
+function renderCompteCard(row, s, today) {
+  const cfg = STATUS_CONFIG[row.statut] || {};
+  const expanded = STATE.comptesExpanded.has(row.id);
+
+  let echLabel = '—', echColor = 'var(--slate)';
+  if (s.prochaineEcheance) {
+    const days = Math.round((s.prochaineEcheance - today) / 86400000);
+    echLabel = s.prochaineEcheance.toLocaleDateString('fr-FR') + ` · ${days} j`;
+    echColor = days <= 60 ? 'var(--red)' : (days <= 120 ? 'var(--amber)' : 'var(--green)');
+  } else if (s.derniereFin) {
+    echLabel = 'échu ' + s.derniereFin.toLocaleDateString('fr-FR');
+    echColor = 'var(--red)';
+  }
+
+  const detailExpanded = STATE.comptesDetailExpanded.has(row.id);
+  let detail = '';
+  if (expanded && detailExpanded) {
+    const lignes = [...s.lines].sort((a, b) => (b.fin ? b.fin.getTime() : 0) - (a.fin ? a.fin.getTime() : 0));
+    detail = `
+      <div class="mt-3">
+        <div class="stat-label mb-2">Détail des lignes facturées (${lignes.length})</div>
+        <div class="space-y-1.5">
+          ${lignes.map(l => `
+            <div class="flex items-center justify-between gap-2 text-[11px] p-2 rounded-lg" style="background: var(--sky);">
+              <div class="min-w-0">
+                <span class="font-semibold">${escapeHtml(l.produit || l.ref || '—')}</span>
+                ${l.isMrr ? '<span class="pill pill-purple" style="font-size:8px; padding:1px 6px;">MRR</span>' : `<span class="pill" style="font-size:8px; padding:1px 6px;">${escapeHtml(l.famille || 'ponctuel')}</span>`}
+                <div style="color: var(--slate);">${l.debut ? l.debut.toLocaleDateString('fr-FR') : '—'} → ${l.fin ? l.fin.toLocaleDateString('fr-FR') : '—'}${l.typeDoc === 'Avoir' ? ' · <span style="color:var(--red);">avoir</span>' : ''}</div>
+              </div>
+              <div class="text-right shrink-0 font-mono num-tab">
+                <div>${Math.round(l.ca).toLocaleString('fr-FR')} €</div>
+                ${l.isMrr ? `<div class="text-[9px]" style="color: var(--slate);">${Math.round(l.mrrMensuel).toLocaleString('fr-FR')} €/mois</div>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  let recap = '';
+  if (expanded) {
+    const cats = recapCategories(s, today);
+    const chips = cats.map(c => `<span style="background:${c.cat.bg}; color:${c.cat.fg}; border-radius:999px; font-size:11px; padding:3px 11px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">${c.cat.key} <b style="font-weight:700;">×${c.qte}</b>${c.tag ? `<span style="font-size:9px; font-weight:500; color:${c.echu ? 'var(--red)' : c.cat.sub};">${c.tag}</span>` : ''}</span>`).join('');
+    const nb = s.lines.length;
+    recap = `
+      <div style="border-top: 1px solid var(--line);" class="mt-3 pt-3">
+        <div class="stat-label mb-2" style="color: var(--blue);">Matériel &amp; services</div>
+        <div class="flex flex-wrap gap-1.5">${chips || '<span class="text-[11px]" style="color: var(--slate);">Aucune ligne catégorisée.</span>'}</div>
+        <div class="text-[10px] mt-3" style="color: var(--blue); cursor: pointer;" onclick="event.stopPropagation(); toggleCompteDetail('${escapeHtml(row.id)}')">${detailExpanded ? '▾ masquer le détail' : '▸ voir le détail des lignes (' + nb + ')'}</div>
+        ${detail}
+      </div>`;
+  }
+
+  return `
+    <div class="card p-4">
+      <div class="flex items-start justify-between gap-3" style="cursor: pointer;" onclick="toggleCompte('${escapeHtml(row.id)}')">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="pill ${cfg.pillClass || ''}">${escapeHtml(row.statut)}</span>
+            <span class="font-display font-medium text-base leading-tight">${escapeHtml(row.nom)}</span>
+          </div>
+          <div class="text-[11px] mt-0.5" style="color: var(--slate);">${escapeHtml(row.type)} · ${escapeHtml(row.ville)} · ${escapeHtml(properRegion(row.region))}</div>
+        </div>
+        <button class="btn-outline text-[10px] font-bold py-1 px-2 shrink-0" onclick="event.stopPropagation(); switchTab('map'); setTimeout(function(){ zoomToMarker('${escapeHtml(row.id)}', ${row.lat}, ${row.lon}); }, 200);">carte</button>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+        <div><div class="stat-label">CA facturé</div><div class="font-mono font-bold num-tab text-sm" style="color: var(--blue-deep);">${Math.round(s.caFacture).toLocaleString('fr-FR')} €</div></div>
+        <div><div class="stat-label">CA année</div><div class="font-mono font-bold num-tab text-sm" style="color: var(--green);">${Math.round(s.caAnnee).toLocaleString('fr-FR')} €</div></div>
+        <div><div class="stat-label">MRR mensuel</div><div class="font-mono font-bold num-tab text-sm" style="color: var(--purple);">${Math.round(s.mrrMensuel).toLocaleString('fr-FR')} €</div></div>
+        <div><div class="stat-label">Prochaine échéance</div><div class="font-mono font-bold num-tab text-xs" style="color: ${echColor};">${echLabel}</div></div>
+      </div>
+      <div class="text-[10px] mt-2" style="color: var(--blue); cursor: pointer;" onclick="toggleCompte('${escapeHtml(row.id)}')">${expanded ? '▾ masquer' : '▸ voir le matériel &amp; services'}</div>
+      ${recap}
+    </div>`;
+}
+
+function set(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+
+// ---- DASHBOARD (Pilotage) -----------------------------------------------
+function renderDashMap() {
+  if (!STATE.geoData.regions || !STATE.geoData.depts) return;
+  STATE.dashLayer.clearLayers();
+  STATE.labelsLayer.clearLayers();
+
+  const isNational = STATE.dashScope === 'national';
+
+  // Nom affiché toujours au format "CODE - NOM" (comme dans le Sheet), qu'un
+  // département ait des clients ou non — évite le mélange de formats observé
+  // (le nom "brut" du GeoJSON n'était utilisé que pour les départements à 0 client).
+  const deptNameByCode = {};
+  if (!isNational && STATE.geoData.depts) {
+    STATE.geoData.depts.features.forEach(f => {
+      deptNameByCode[f.properties.code] = `${f.properties.code} - ${(f.properties.nom || '').toUpperCase()}`;
+    });
+  }
+
+  const stats = {};
+  STATE.rows.filter(r => r.statut === 'Client').forEach(r => {
+    // En vue régionale, on ne garde que les clients de la région sélectionnée
+    if (!isNational && normRegion(r.region) !== STATE.dashRegionKey) return;
+    const key = isNational ? normRegion(r.region) : deptCode(r.dept);
+    if (!stats[key]) stats[key] = { n: 0, ca: 0, name: isNational ? (properRegion(r.region)) : (deptNameByCode[key] || r.dept) };
+    stats[key].n++;
+    stats[key].ca += r.ca;
+  });
+
+  const regionCodes = !isNational ? REGION_DEPT_CODES[STATE.dashRegionKey] : null;
+  const features = (isNational ? STATE.geoData.regions : STATE.geoData.depts).features.filter(f => {
+    if (isNational) return true;
+    if (regionCodes) return regionCodes.includes(f.properties.code);
+    return stats[f.properties.code] !== undefined;
+  });
+
+  if (!isNational) {
+    features.forEach(f => {
+      if (!stats[f.properties.code]) stats[f.properties.code] = { n: 0, ca: 0, name: deptNameByCode[f.properties.code] || f.properties.nom };
+    });
+  }
+
+  const maxCA = Math.max(...Object.values(stats).map(s => s.ca), 1);
+
+  const layer = L.geoJson({type: 'FeatureCollection', features}, {
+    style: f => {
+      const k = isNational ? normFromGeo(f.properties.nom, true) : f.properties.code;
+      const s = stats[k];
+      const isMine = isNational ? MES_REGIONS.includes(normRegion(f.properties.nom)) : true;
+      return {
+        fillColor: colorScale(s ? s.ca / maxCA : 0, isMine),
+        fillOpacity: 0.85, weight: 1.5, color: '#FFFFFF'
+      };
+    },
+    onEachFeature: (f, l) => {
+      const k = isNational ? normFromGeo(f.properties.nom, true) : f.properties.code;
+      const s = stats[k];
+      if (s && s.ca > 0) {
+        const label = L.marker(l.getBounds().getCenter(), {
+          icon: L.divIcon({
+            className: 'ca-label',
+            html: `${Math.round(s.ca).toLocaleString('fr-FR')} €`,
+            iconSize: [80, 18], iconAnchor: [40, 9]
+          }),
+          interactive: false
+        });
+        STATE.labelsLayer.addLayer(label);
+      }
+      l.on({
+        mouseover: e => e.target.setStyle({ fillOpacity: 1, weight: 3, color: '#2A5C9C' }),
+        mouseout: e => e.target.setStyle({ fillOpacity: 0.85, weight: 1.5, color: '#FFFFFF' }),
+        click: () => isNational ? zoomToRegion(f.properties.nom, l.getBounds()) : null
+      });
+    }
+  });
+  STATE.dashLayer.addLayer(layer);
+
+  set('dash-title', isNational ? 'France · CA Clients par région' : `Zoom · ${STATE.dashSelected}`);
+  set('dash-subtitle', isNational ? 'Cliquez sur une région pour zoomer · Mes 7 régions en bleu' : 'Détail par département');
+  document.getElementById('dash-back').classList.toggle('hidden', isNational);
+  set('rank-title', isNational ? 'Régions par CA' : `${STATE.dashSelected} · Départements`);
+  document.getElementById('rank-h1').textContent = isNational ? 'Région' : 'Département';
+
+  document.getElementById('rank-body').innerHTML = Object.values(stats)
+    .sort((a,b) => b.ca - a.ca)
+    .map(s => {
+      const isMine = isNational ? MES_REGIONS.some(m => REGION_PROPER[m] === s.name) : true;
+      return `
+        <tr style="border-bottom: 1px solid var(--line);">
+          <td class="px-4 py-3 font-semibold ${isMine ? '' : 'opacity-50'}">${escapeHtml(s.name)}${isMine && isNational ? ' <span class="font-mono text-[8px]" style="color:var(--blue);">●</span>' : ''}</td>
+          <td class="px-4 py-3 text-center font-mono num-tab">${s.n}</td>
+          <td class="px-4 py-3 text-right font-mono font-bold num-tab" style="color: var(--green);">${Math.round(s.ca).toLocaleString('fr-FR')} €</td>
+        </tr>
+      `;
+    }).join('');
+}
+
+// Échelle de bleus (mes régions) / gris (les autres)
+function colorScale(ratio, isMine) {
+  if (ratio === 0) return '#EDF4FB';
+  if (isMine) {
+    if (ratio > 0.7) return '#2A5C9C';
+    if (ratio > 0.4) return '#3D7CC9';
+    if (ratio > 0.15) return '#7FB3E3';
+    return '#C4DCF2';
+  }
+  if (ratio > 0.7) return '#5A6B80';
+  if (ratio > 0.4) return '#8494A8';
+  if (ratio > 0.15) return '#AEBBCB';
+  return '#D6DEE8';
+}
+
+function zoomToRegion(name, bounds) {
+  STATE.dashScope = 'regional';
+  STATE.dashSelected = name;
+  STATE.dashRegionKey = normRegion(name);
+  STATE.dashMap.fitBounds(bounds, { padding: [40, 40] });
+  renderDashMap();
+}
+function resetDashMap() {
+  STATE.dashScope = 'national';
+  STATE.dashSelected = null;
+  STATE.dashRegionKey = null;
+  STATE.dashMap.setView([46.5, 2.5], 5);
+  renderDashMap();
+}
+
+function normRegion(s) {
+  if (!s) return '';
+  let c = s.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return c.toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+function deptCode(s) {
+  if (!s) return '';
+  const c = s.toString().trim();
+  const code = c.includes(' - ') ? c.split(' - ')[0].trim() : c;
+  return code.length === 1 ? '0' + code : code;
+}
+
+function normDept(s) {
+  if (!s) return '';
+  let c = s.toString().trim();
+  if (c.includes(' - ')) c = c.split(' - ').slice(1).join(' - ');
+  return c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+function normFromGeo(s, isRegion) {
+  return isRegion ? normRegion(s) : normDept(s);
+}
+
+// ---- TABS --------------------------------------------------------------
+function switchTab(tab) {
+  ['map','portfolio','stats','comptes'].forEach(t => {
+    document.getElementById(`content-${t}`).classList.toggle('hidden', t !== tab);
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+  });
+  setTimeout(() => {
+    if (tab === 'map') STATE.map.invalidateSize();
+    if (tab === 'stats') { STATE.dashMap.invalidateSize(); renderDashMap(); }
+    if (tab === 'portfolio') renderPortfolio();
+    if (tab === 'comptes') renderComptes();
+  }, 100);
+}
+
+// ---- RADIUS ------------------------------------------------------------
+function toggleSelectionMode(on) {
+  STATE.selectionMode = on;
+  document.body.classList.toggle('mode-selection', on);
+}
+function setRadiusCenter(lat, lon, label) {
+  STATE.radius.center = { lat, lon };
+  STATE.startLabel = label || null;
+  const sl = document.getElementById('start-label');
+  if (sl) sl.textContent = label || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  document.getElementById('reset-radius').classList.remove('hidden');
+  document.getElementById('reset-radius-map').classList.remove('hidden');
+  document.getElementById('radius-block').classList.remove('opacity-50','pointer-events-none');
+  drawRadius();
+  applyFilters();
+}
+function updateRadius(km) {
+  STATE.radius.km = parseInt(km);
+  document.getElementById('radius-display').textContent = km + ' km';
+  if (STATE.radius.center) { drawRadius(); applyFilters(); }
+}
+function drawRadius() {
+  if (STATE.radius.circle) STATE.map.removeLayer(STATE.radius.circle);
+  if (STATE.radius.marker) STATE.map.removeLayer(STATE.radius.marker);
+  if (STATE.radius.center) {
+    STATE.radius.circle = L.circle([STATE.radius.center.lat, STATE.radius.center.lon], {
+      radius: STATE.radius.km * 1000,
+      color: '#3D7CC9', fillColor: '#3D7CC9', fillOpacity: 0.06,
+      weight: 1.5, dashArray: '4 4'
+    }).addTo(STATE.map);
+    STATE.radius.marker = L.circleMarker([STATE.radius.center.lat, STATE.radius.center.lon], {
+      radius: 5, fillColor: '#3D7CC9', color: '#FFFFFF', weight: 2, fillOpacity: 1
+    }).addTo(STATE.map);
+  }
+}
+function clearRadius() {
+  STATE.radius.center = null;
+  STATE.startLabel = null;
+  const sl = document.getElementById('start-label');
+  if (sl) sl.textContent = '—';
+  if (STATE.radius.circle) STATE.map.removeLayer(STATE.radius.circle);
+  if (STATE.radius.marker) STATE.map.removeLayer(STATE.radius.marker);
+  document.getElementById('reset-radius').classList.add('hidden');
+  document.getElementById('reset-radius-map').classList.add('hidden');
+  document.getElementById('radius-block').classList.add('opacity-50','pointer-events-none');
+  applyFilters();
+}
+function haversine(la1, lo1, la2, lo2) {
+  const R = 6371;
+  const dLa = (la2 - la1) * Math.PI/180;
+  const dLo = (lo2 - lo1) * Math.PI/180;
+  const a = Math.sin(dLa/2)**2 + Math.cos(la1*Math.PI/180) * Math.cos(la2*Math.PI/180) * Math.sin(dLo/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function getUserLocation() {
+  if (!navigator.geolocation) { alert('Géolocalisation indisponible'); return; }
+  navigator.geolocation.getCurrentPosition(p => {
+    STATE.map.setView([p.coords.latitude, p.coords.longitude], 11);
+    setRadiusCenter(p.coords.latitude, p.coords.longitude, 'Ma position');
+  }, () => alert("Impossible d'obtenir ta position (autorisation refusée ?)"));
+}
+
+// ---- EXPORT ------------------------------------------------------------
+function exportCSV() {
+  const isTour = STATE.tour.active;
+  const source = isTour ? [...STATE.tour.stops].sort((a,b) => a._order - b._order) : STATE.filtered;
+  if (source.length === 0) { alert('Aucun établissement à exporter'); return; }
+  function q(s) { return `"${(s||'').replace(/"/g, '""')}"`; }
+
+  const headers = isTour
+    ? ['Ordre','Jour','ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Dernier contact','Adresse','Visite','Distance étape (km)']
+    : ['ID','Nom','Statut','Type','CA','Ville','CP','Département','Région','Dernier contact','Adresse','Visite'];
+
+  const fmtDate = r => r.dernierContact ? r.dernierContact.toLocaleDateString('fr-FR') : '';
+
+  const rows = source.map(r => isTour ? [
+    r._order, r._day, r.id, q(r.nom), r.statut, q(r.type), Math.round(r.ca),
+    q(r.ville), r.cp, q(r.dept), q(r.region),
+    q(fmtDate(r)), q(r.adresse), q(r.visite), r._distFromPrev.toFixed(1)
+  ] : [
+    r.id, q(r.nom), r.statut, q(r.type), Math.round(r.ca),
+    q(r.ville), r.cp, q(r.dept), q(r.region),
+    q(fmtDate(r)), q(r.adresse), q(r.visite)
+  ]);
+
+  const csv = '\uFEFF' + [headers, ...rows].map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Atlas_${isTour ? 'Tournee' : 'Selection'}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// ---- SYNC --------------------------------------------------------------
+async function syncData() {
+  const icon = document.getElementById('sync-icon');
+  icon.classList.add('spin');
+  document.getElementById('sync-text').textContent = 'Sync...';
+  await loadSheet();
+  await loadSellsy();
+  populateFilters();
+  applyFilters();
+  renderPortfolio();
+  icon.classList.remove('spin');
+  document.getElementById('sync-text').textContent = 'Synchroniser';
+}
+
+// ---- SIDEBAR -----------------------------------------------------------
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('visible');
+}
+
+function switchSideTab(tab) {
+  document.getElementById('side-content-contact').classList.toggle('hidden', tab !== 'contact');
+  document.getElementById('side-content-tour').classList.toggle('hidden', tab !== 'tour');
+  document.getElementById('side-tab-contact').classList.toggle('active', tab === 'contact');
+  document.getElementById('side-tab-tour').classList.toggle('active', tab === 'tour');
+}
+
+// ---- TABLE PANEL : hauteur variable + masquage ---------------------------
+STATE.tablePanel = { lastHeight: 200 };
+
+function hideTablePanel() {
+  const panel = document.getElementById('table-panel');
+  STATE.tablePanel.lastHeight = panel.getBoundingClientRect().height || 200;
+  panel.style.display = 'none';
+  document.getElementById('show-table-btn').classList.remove('hidden');
+  setTimeout(() => STATE.map.invalidateSize(), 50);
+}
+
+function showTablePanel() {
+  const panel = document.getElementById('table-panel');
+  panel.style.display = 'flex';
+  panel.style.height = STATE.tablePanel.lastHeight + 'px';
+  document.getElementById('show-table-btn').classList.add('hidden');
+  setTimeout(() => STATE.map.invalidateSize(), 50);
+}
+
+(function initTableResize() {
+  const handle = document.getElementById('table-resize-handle');
+  const panel = document.getElementById('table-panel');
+  if (!handle || !panel) return;
+
+  function startDrag(startClientY) {
+    const startHeight = panel.getBoundingClientRect().height;
+    function onMove(clientY) {
+      const delta = startClientY - clientY;
+      const maxH = window.innerHeight * 0.75;
+      const newHeight = Math.max(48, Math.min(maxH, startHeight + delta));
+      panel.style.height = newHeight + 'px';
+      STATE.map.invalidateSize();
+    }
+    function onMouseMove(e) { onMove(e.clientY); }
+    function onTouchMove(e) { if (e.touches[0]) { onMove(e.touches[0].clientY); e.preventDefault(); } }
+    function stop() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', stop);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', stop);
+      STATE.tablePanel.lastHeight = panel.getBoundingClientRect().height;
+    }
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', stop);
+  }
+
+  handle.addEventListener('mousedown', (e) => { e.preventDefault(); startDrag(e.clientY); });
+  handle.addEventListener('touchstart', (e) => { if (e.touches[0]) startDrag(e.touches[0].clientY); }, { passive: true });
+})();
+
+// ---- PILOTAGE MOBILE : panneau classement redimensionnable ----------------
+(function initRankResize() {
+  const handle = document.getElementById('rank-resize-handle');
+  const panel = document.getElementById('rank-panel');
+  if (!handle || !panel) return;
+
+  function startDrag(startClientY) {
+    const startHeight = panel.getBoundingClientRect().height;
+    function onMove(clientY) {
+      const delta = startClientY - clientY;
+      const maxH = window.innerHeight * 0.75;
+      const newHeight = Math.max(90, Math.min(maxH, startHeight + delta));
+      panel.style.height = newHeight + 'px';
+    }
+    function onMouseMove(e) { onMove(e.clientY); }
+    function onTouchMove(e) { if (e.touches[0]) { onMove(e.touches[0].clientY); e.preventDefault(); } }
+    function stop() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', stop);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', stop);
+      if (STATE.dashMap) setTimeout(() => STATE.dashMap.invalidateSize(), 50);
+    }
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', stop);
+  }
+
+  handle.addEventListener('mousedown', (e) => { e.preventDefault(); startDrag(e.clientY); });
+  handle.addEventListener('touchstart', (e) => { if (e.touches[0]) startDrag(e.touches[0].clientY); }, { passive: true });
+})();
+
+// ---- HELPERS -----------------------------------------------------------
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>

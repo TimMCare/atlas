@@ -2118,22 +2118,26 @@ function toggleCompteDetail(id) {
   renderComptes();
 }
 
-// Regroupe les lignes Sellsy d'un client en 4 catégories : Licences / Matériel / Formation / Autres.
-// Licences = tout ce qui est récurrent (MRR), compté "en cours" (lignes encore actives à ce jour).
-// Matériel / Formation / Autres = ponctuel, compté en cumul (avoirs déduits).
-const COMPTES_MATERIEL_FAMILLES = new Set(['Tablette', 'Casque', 'Enceinte', 'Chargeur']);
+// Regroupe les lignes Sellsy d'un client en 6 catégories métier.
+// Correspondance par famille (colonne "Famille" de l'onglet Sellsy propre) ; tout le reste va dans "Autre".
+// Récurrent (MRR) = compté "en cours" (lignes encore actives) ; ponctuel = cumul (avoirs déduits).
+const COMPTES_FAMILLE_TO_CAT = {
+  'Licence': 'Licence pro',
+  'Licence TMM': 'Licence TMM',
+  'Location VR': 'VR',
+  'Pack Audio': 'Pack audio',
+  'Formation': 'Formation'
+};
 const COMPTES_CATEGORIES = [
-  { key: 'Licences',  icon: 'license',        bg: '#EEEDFE', fg: '#3C3489', sub: '#7F77DD' },
-  { key: 'Matériel',  icon: 'headphones',     bg: '#E6F1FB', fg: '#0C447C', sub: '#378ADD' },
-  { key: 'Formation', icon: 'school',         bg: '#FAEEDA', fg: '#854F0B', sub: '#BA7517' },
-  { key: 'Autres',    icon: 'package',        bg: '#F1EFE8', fg: '#444441', sub: '#888780' }
+  { key: 'Licence pro',  bg: '#EEEDFE', fg: '#3C3489', sub: '#7F77DD' },
+  { key: 'Licence TMM',  bg: '#FBEAF0', fg: '#72243E', sub: '#D4537E' },
+  { key: 'VR',           bg: '#E1F5EE', fg: '#085041', sub: '#1D9E75' },
+  { key: 'Pack audio',   bg: '#E6F1FB', fg: '#0C447C', sub: '#378ADD' },
+  { key: 'Formation',    bg: '#FAEEDA', fg: '#854F0B', sub: '#BA7517' },
+  { key: 'Autre',        bg: '#F1EFE8', fg: '#444441', sub: '#888780' }
 ];
 function categorieLigne(l) {
-  if (l.isMrr) return 'Licences';
-  const f = l.famille || '';
-  if (COMPTES_MATERIEL_FAMILLES.has(f)) return 'Matériel';
-  if (f === 'Formation') return 'Formation';
-  return 'Autres';
+  return COMPTES_FAMILLE_TO_CAT[l.famille || ''] || 'Autre';
 }
 function qteSignee(l) { const q = l.qte || 0; return l.typeDoc === 'Avoir' ? -q : q; }
 function recapCategories(s, today) {
@@ -2143,25 +2147,26 @@ function recapCategories(s, today) {
   COMPTES_CATEGORIES.forEach(cat => {
     const lignes = groupes[cat.key];
     if (!lignes || !lignes.length) return;
-    let qte, tag = '', echu = false;
-    if (cat.key === 'Licences') {
-      const actives = lignes.filter(l => !l.fin || l.fin >= today);
+    const mrr = lignes.filter(l => l.isMrr);
+    const ponct = lignes.filter(l => !l.isMrr);
+    let qte = 0, tag = '', echu = false;
+    // Part récurrente : uniquement les lignes encore actives (évite de recompter les renouvellements).
+    if (mrr.length) {
+      const actives = mrr.filter(l => !l.fin || l.fin >= today);
       if (actives.length) {
-        qte = actives.reduce((a, l) => a + qteSignee(l), 0);
-        if (qte <= 0) qte = actives.length;
-        tag = 'en cours';
+        qte += actives.reduce((a, l) => a + qteSignee(l), 0);
+        if (!ponct.length) tag = 'en cours';
       } else {
-        const fins = lignes.filter(l => l.fin).map(l => l.fin.getTime());
+        const fins = mrr.filter(l => l.fin).map(l => l.fin.getTime());
         const maxFin = fins.length ? Math.max(...fins) : null;
-        const dernieres = maxFin ? lignes.filter(l => l.fin && l.fin.getTime() === maxFin) : lignes;
-        qte = dernieres.reduce((a, l) => a + qteSignee(l), 0);
-        if (qte <= 0) qte = dernieres.length;
-        tag = 'échu'; echu = true;
+        const dernieres = maxFin ? mrr.filter(l => l.fin && l.fin.getTime() === maxFin) : mrr;
+        qte += dernieres.reduce((a, l) => a + qteSignee(l), 0);
+        if (!ponct.length) { tag = 'échu'; echu = true; }
       }
-    } else {
-      qte = lignes.reduce((a, l) => a + qteSignee(l), 0);
-      if (qte <= 0) qte = lignes.length;
     }
+    // Part ponctuelle : cumul (matériel, formation, frais…).
+    if (ponct.length) qte += ponct.reduce((a, l) => a + qteSignee(l), 0);
+    if (qte <= 0) qte = lignes.length; // repli si la colonne Qté est vide dans l'export
     out.push({ cat, qte: Math.round(qte), tag, echu });
   });
   return out;

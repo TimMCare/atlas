@@ -883,6 +883,7 @@
             <option value="mrrMensuel">Trier : MRR mensuel</option>
             <option value="echeance">Trier : prochaine échéance</option>
           </select>
+          <button id="comptes-sort-dir" class="btn-outline text-[11px] font-bold py-1 px-3 shrink-0" onclick="toggleComptesSortDir()">↓ décroissant</button>
         </div>
 
         <div id="comptes-hors-base" class="hidden text-[11px] mb-3 p-2 rounded-xl" style="background: var(--sky-2); color: var(--slate);"></div>
@@ -1016,7 +1017,7 @@ const STATE = {
   startLabel: null,     // libellé du point de départ tournée
   tempMarker: null,     // pin temporaire du dernier résultat de recherche
   sellsy: { rows: [], byClient: {} },   // facturation Sellsy (onglet "Sellsy propre")
-  comptesSearch: '', comptesSort: 'caAnnee', comptesExpanded: new Set(), comptesDetailExpanded: new Set()
+  comptesSearch: '', comptesSort: 'caAnnee', comptesSortDir: 'desc', comptesExpanded: new Set(), comptesDetailExpanded: new Set()
 };
 
 Object.entries(STATUS_CONFIG).forEach(([s, cfg]) => STATE.visibleStatuses[s] = cfg.defaultOn);
@@ -2107,6 +2108,12 @@ function renderPortfolio() {
 // ---- COMPTES (vue facturation par client) ------------------------------
 function onComptesSearch(v) { STATE.comptesSearch = v; renderComptes(); }
 function onComptesSort(v) { STATE.comptesSort = v; renderComptes(); }
+function toggleComptesSortDir() {
+  STATE.comptesSortDir = STATE.comptesSortDir === 'asc' ? 'desc' : 'asc';
+  const b = document.getElementById('comptes-sort-dir');
+  if (b) b.textContent = STATE.comptesSortDir === 'asc' ? '↑ croissant' : '↓ décroissant';
+  renderComptes();
+}
 function toggleCompte(id) {
   if (STATE.comptesExpanded.has(id)) { STATE.comptesExpanded.delete(id); STATE.comptesDetailExpanded.delete(id); }
   else STATE.comptesExpanded.add(id);
@@ -2120,7 +2127,7 @@ function toggleCompteDetail(id) {
 
 // Regroupe les lignes Sellsy d'un client en 6 catégories métier.
 // Correspondance par famille (colonne "Famille" de l'onglet Sellsy propre) ; tout le reste va dans "Autre".
-// Récurrent (MRR) = compté "en cours" (lignes encore actives) ; ponctuel = cumul (avoirs déduits).
+// On ne compte QUE les lignes actives à ce jour (aujourd'hui entre début et fin), et on additionne les Qté.
 const COMPTES_FAMILLE_TO_CAT = {
   'Licence': 'Licence pro',
   'Licence TMM': 'Licence TMM',
@@ -2140,34 +2147,22 @@ function categorieLigne(l) {
   return COMPTES_FAMILLE_TO_CAT[l.famille || ''] || 'Autre';
 }
 function qteSignee(l) { const q = l.qte || 0; return l.typeDoc === 'Avoir' ? -q : q; }
+// Une ligne est "active à ce jour" si aujourd'hui tombe entre sa date de début et sa date de fin.
+function ligneActive(l, today) { return !!(l.debut && l.fin && l.debut <= today && today <= l.fin); }
 function recapCategories(s, today) {
   const groupes = {};
-  s.lines.forEach(l => { const c = categorieLigne(l); (groupes[c] = groupes[c] || []).push(l); });
+  s.lines.forEach(l => {
+    if (!ligneActive(l, today)) return;                 // on ne compte que les contrats en cours
+    const c = categorieLigne(l);
+    (groupes[c] = groupes[c] || []).push(l);
+  });
   const out = [];
   COMPTES_CATEGORIES.forEach(cat => {
     const lignes = groupes[cat.key];
     if (!lignes || !lignes.length) return;
-    const mrr = lignes.filter(l => l.isMrr);
-    const ponct = lignes.filter(l => !l.isMrr);
-    let qte = 0, tag = '', echu = false;
-    // Part récurrente : uniquement les lignes encore actives (évite de recompter les renouvellements).
-    if (mrr.length) {
-      const actives = mrr.filter(l => !l.fin || l.fin >= today);
-      if (actives.length) {
-        qte += actives.reduce((a, l) => a + qteSignee(l), 0);
-        if (!ponct.length) tag = 'en cours';
-      } else {
-        const fins = mrr.filter(l => l.fin).map(l => l.fin.getTime());
-        const maxFin = fins.length ? Math.max(...fins) : null;
-        const dernieres = maxFin ? mrr.filter(l => l.fin && l.fin.getTime() === maxFin) : mrr;
-        qte += dernieres.reduce((a, l) => a + qteSignee(l), 0);
-        if (!ponct.length) { tag = 'échu'; echu = true; }
-      }
-    }
-    // Part ponctuelle : cumul (matériel, formation, frais…).
-    if (ponct.length) qte += ponct.reduce((a, l) => a + qteSignee(l), 0);
-    if (qte <= 0) qte = lignes.length; // repli si la colonne Qté est vide dans l'export
-    out.push({ cat, qte: Math.round(qte), tag, echu });
+    const qte = Math.round(lignes.reduce((a, l) => a + qteSignee(l), 0));
+    if (qte <= 0) return;                                // qté nulle (ex: formation à 0) ou nette à 0 → rien afficher
+    out.push({ cat, qte });
   });
   return out;
 }
@@ -2187,13 +2182,17 @@ function renderComptes() {
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const sortKey = STATE.comptesSort || 'caAnnee';
+  const dir = STATE.comptesSortDir === 'asc' ? 1 : -1;
   items.sort((a, b) => {
+    let d;
     if (sortKey === 'echeance') {
       const ea = a.s.prochaineEcheance ? a.s.prochaineEcheance.getTime() : Infinity;
       const eb = b.s.prochaineEcheance ? b.s.prochaineEcheance.getTime() : Infinity;
-      return ea - eb;
+      d = ea - eb;
+    } else {
+      d = (a.s[sortKey] || 0) - (b.s[sortKey] || 0);
     }
-    return (b.s[sortKey] || 0) - (a.s[sortKey] || 0);
+    return d * dir;
   });
 
   const tot = items.reduce((acc, x) => { acc.f += x.s.caFacture; acc.a += x.s.caAnnee; acc.m += x.s.mrrMensuel; return acc; }, { f: 0, a: 0, m: 0 });
@@ -2260,12 +2259,12 @@ function renderCompteCard(row, s, today) {
   let recap = '';
   if (expanded) {
     const cats = recapCategories(s, today);
-    const chips = cats.map(c => `<span style="background:${c.cat.bg}; color:${c.cat.fg}; border-radius:999px; font-size:11px; padding:3px 11px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">${c.cat.key} <b style="font-weight:700;">×${c.qte}</b>${c.tag ? `<span style="font-size:9px; font-weight:500; color:${c.echu ? 'var(--red)' : c.cat.sub};">${c.tag}</span>` : ''}</span>`).join('');
+    const chips = cats.map(c => `<span style="background:${c.cat.bg}; color:${c.cat.fg}; border-radius:999px; font-size:11px; padding:3px 11px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">${c.cat.key} <b style="font-weight:700;">×${c.qte}</b></span>`).join('');
     const nb = s.lines.length;
     recap = `
       <div style="border-top: 1px solid var(--line);" class="mt-3 pt-3">
-        <div class="stat-label mb-2" style="color: var(--blue);">Matériel &amp; services</div>
-        <div class="flex flex-wrap gap-1.5">${chips || '<span class="text-[11px]" style="color: var(--slate);">Aucune ligne catégorisée.</span>'}</div>
+        <div class="stat-label mb-2" style="color: var(--blue);">Produits en cours à ce jour</div>
+        <div class="flex flex-wrap gap-1.5">${chips || '<span class="text-[11px]" style="color: var(--slate);">Aucun produit actif à ce jour.</span>'}</div>
         <div class="text-[10px] mt-3" style="color: var(--blue); cursor: pointer;" onclick="event.stopPropagation(); toggleCompteDetail('${escapeHtml(row.id)}')">${detailExpanded ? '▾ masquer le détail' : '▸ voir le détail des lignes (' + nb + ')'}</div>
         ${detail}
       </div>`;
@@ -2280,6 +2279,7 @@ function renderCompteCard(row, s, today) {
             <span class="font-display font-medium text-base leading-tight">${escapeHtml(row.nom)}</span>
           </div>
           <div class="text-[11px] mt-0.5" style="color: var(--slate);">${escapeHtml(row.type)} · ${escapeHtml(row.ville)} · ${escapeHtml(properRegion(row.region))}</div>
+          <div class="text-[10px] mt-0.5 font-mono num-tab" style="color: var(--slate);">ID Sellsy ${escapeHtml(row.id)}</div>
         </div>
         <button class="btn-outline text-[10px] font-bold py-1 px-2 shrink-0" onclick="event.stopPropagation(); switchTab('map'); setTimeout(function(){ zoomToMarker('${escapeHtml(row.id)}', ${row.lat}, ${row.lon}); }, 200);">carte</button>
       </div>
@@ -2290,7 +2290,7 @@ function renderCompteCard(row, s, today) {
         <div><div class="stat-label">MRR mensuel</div><div class="font-mono font-bold num-tab text-sm" style="color: var(--purple);">${Math.round(s.mrrMensuel).toLocaleString('fr-FR')} €</div></div>
         <div><div class="stat-label">Prochaine échéance</div><div class="font-mono font-bold num-tab text-xs" style="color: ${echColor};">${echLabel}</div></div>
       </div>
-      <div class="text-[10px] mt-2" style="color: var(--blue); cursor: pointer;" onclick="toggleCompte('${escapeHtml(row.id)}')">${expanded ? '▾ masquer' : '▸ voir le matériel &amp; services'}</div>
+      <div class="text-[10px] mt-2" style="color: var(--blue); cursor: pointer;" onclick="toggleCompte('${escapeHtml(row.id)}')">${expanded ? '▾ masquer' : '▸ voir les produits en cours'}</div>
       ${recap}
     </div>`;
 }

@@ -869,7 +869,7 @@
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div class="p-5 card"><div class="stat-label">CA facturé (cumul)</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-ca-facture" style="color: var(--blue-deep);">—</div></div>
+          <div class="p-5 card"><div class="stat-label">CA facturé (en cours)</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-ca-facture" style="color: var(--blue-deep);">—</div></div>
           <div class="p-5 card"><div class="stat-label">CA année en cours</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-ca-annee" style="color: var(--green);">—</div></div>
           <div class="p-5 card"><div class="stat-label">MRR mensuel</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-mrr" style="color: var(--purple);">—</div></div>
           <div class="p-5 card"><div class="stat-label">Comptes affichés</div><div class="big-num text-2xl md:text-3xl mt-2 num-tab" id="comptes-count" style="color: var(--ink);">—</div></div>
@@ -879,7 +879,7 @@
           <input id="comptes-search" type="text" placeholder="🔍 Rechercher un compte..." class="input-round md:max-w-xs" autocomplete="off" oninput="onComptesSearch(this.value)">
           <select id="comptes-sort" class="input-round md:max-w-[240px]" onchange="onComptesSort(this.value)">
             <option value="caAnnee">Trier : CA année en cours</option>
-            <option value="caFacture">Trier : CA facturé (cumul)</option>
+            <option value="caFacture">Trier : CA facturé (en cours)</option>
             <option value="mrrMensuel">Trier : MRR mensuel</option>
             <option value="echeance">Trier : prochaine échéance</option>
           </select>
@@ -1393,6 +1393,7 @@ function loadSellsy() {
       download: true, header: true, skipEmptyLines: true,
       complete: (res) => {
         const byClient = {};
+        const today = new Date(); today.setHours(0, 0, 0, 0);
         (res.data || []).forEach(r => {
           if ((r["À compter"] || '').trim() !== 'Oui') return;          // on ignore devis / proforma / brouillon
           const id = (r["ID Sellsy"] || '').toString().trim();
@@ -1404,9 +1405,11 @@ function loadSellsy() {
           const isMrr = (r["MRR ?"] || '').trim() === 'Oui';
           const debut = parseDateAny(r["Début service"]);
           const fin = parseDateAny(r["Fin service"]);
+          const actif = !!(debut && fin && debut <= today && today <= fin);   // aujourd'hui dans la période de service
           if (!byClient[id]) byClient[id] = { id, nom: (r["Client"] || '').trim(), caFacture: 0, caAnnee: 0, mrrMensuel: 0, lines: [] };
           const c = byClient[id];
-          c.caFacture += ca; c.caAnnee += caAnnee; c.mrrMensuel += mrrM;
+          if (actif) c.caFacture += ca;                                 // CA facturé = seulement les contrats en cours (avoirs déjà signés)
+          c.caAnnee += caAnnee; c.mrrMensuel += mrrM;
           c.lines.push({
             produit: (r["Produit"] || '').trim(), famille: (r["Famille"] || '').trim(),
             ref: (r["Réf produit"] || '').trim(), isMrr, qte: parseNumFr(r["Qté"]),
@@ -1414,7 +1417,6 @@ function loadSellsy() {
             doc: (r["N° document"] || '').trim(), typeDoc: (r["Type doc"] || '').trim()
           });
         });
-        const today = new Date(); today.setHours(0, 0, 0, 0);
         Object.values(byClient).forEach(c => {
           const futureEnds = c.lines.filter(l => l.isMrr && l.fin && l.fin >= today).map(l => l.fin.getTime());
           const allEnds = c.lines.filter(l => l.isMrr && l.fin).map(l => l.fin.getTime());
@@ -2146,7 +2148,9 @@ const COMPTES_CATEGORIES = [
 function categorieLigne(l) {
   return COMPTES_FAMILLE_TO_CAT[l.famille || ''] || 'Autre';
 }
-function qteSignee(l) { const q = l.qte || 0; return l.typeDoc === 'Avoir' ? -q : q; }
+// Quantité signée : un avoir retranche toujours (quel que soit le signe brut de la colonne Qté).
+function estAvoir(l) { return /avoir|avr/i.test(l.typeDoc || '') || (l.ca || 0) < 0; }
+function qteSignee(l) { const q = Math.abs(l.qte || 0); return estAvoir(l) ? -q : q; }
 // Une ligne est "active à ce jour" si aujourd'hui tombe entre sa date de début et sa date de fin.
 function ligneActive(l, today) { return !!(l.debut && l.fin && l.debut <= today && today <= l.fin); }
 function recapCategories(s, today) {

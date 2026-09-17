@@ -1303,7 +1303,9 @@ function loadSheet() {
             visite: (row["Visite prévue"] || "").trim(),
             services: (row["Services"] || "").trim(),
             doublon: (row["Vérification Doublon"] || "").trim(),
-            doublonDetails: (row["Détails Doublons"] || "").trim()
+            doublonDetails: (row["Détails Doublons"] || "").trim(),
+            corr: lireCorrection(row),
+            corrVerifie: (row["Vérifié le"] || "").toString().trim()
           };
         });
 
@@ -1405,10 +1407,8 @@ function loadSellsy() {
           const isMrr = (r["MRR ?"] || '').trim() === 'Oui';
           const debut = parseDateAny(r["Début service"]);
           const fin = parseDateAny(r["Fin service"]);
-          const actif = !!(debut && fin && debut <= today && today <= fin);   // aujourd'hui dans la période de service
           if (!byClient[id]) byClient[id] = { id, nom: (r["Client"] || '').trim(), caFacture: 0, caAnnee: 0, mrrMensuel: 0, lines: [] };
           const c = byClient[id];
-          if (actif) c.caFacture += ca;                                 // CA facturé = seulement les contrats en cours (avoirs déjà signés)
           c.caAnnee += caAnnee; c.mrrMensuel += mrrM;
           c.lines.push({
             produit: (r["Produit"] || '').trim(), famille: (r["Famille"] || '').trim(),
@@ -1418,6 +1418,7 @@ function loadSellsy() {
           });
         });
         Object.values(byClient).forEach(c => {
+          c.caFacture = comptesActifs(c.lines, today).caFacture;   // CA facturé = contrats en cours, avoirs orphelins écartés
           const futureEnds = c.lines.filter(l => l.isMrr && l.fin && l.fin >= today).map(l => l.fin.getTime());
           const allEnds = c.lines.filter(l => l.isMrr && l.fin).map(l => l.fin.getTime());
           c.prochaineEcheance = futureEnds.length ? new Date(Math.min(...futureEnds)) : null;
@@ -2137,6 +2138,28 @@ const COMPTES_FAMILLE_TO_CAT = {
   'Pack Audio': 'Pack audio',
   'Formation': 'Formation'
 };
+// Correction manuelle (onglet principal, colonnes V→AB). Règle : dès qu'UNE case de la ligne est
+// remplie, toute la ligne fait foi et remplace le calcul automatique (les cases vides valent 0).
+// Ligne entièrement vide = Atlas calcule tout seul, comme d'habitude.
+const CORR_COLS = {
+  'Licence pro': 'Licence pro (corrigé)',
+  'Licence TMM': 'Licence TMM (corrigé)',
+  'VR': 'VR (corrigé)',
+  'Pack audio': 'Pack audio (corrigé)',
+  'Formation': 'Formation (corrigé)',
+  'Autre': 'Autre (corrigé)'
+};
+function lireCorrection(row) {
+  let corr = null;
+  Object.keys(CORR_COLS).forEach(cat => {
+    const raw = (row[CORR_COLS[cat]] || '').toString().trim();
+    if (raw === '') return;                  // case vide → on ne déclenche pas la correction
+    if (!corr) corr = {};
+    corr[cat] = parseNumFr(raw) || 0;
+  });
+  return corr;                               // null = pas de correction sur cette ligne
+}
+
 const COMPTES_CATEGORIES = [
   { key: 'Licence pro',  bg: '#EEEDFE', fg: '#3C3489', sub: '#7F77DD' },
   { key: 'Licence TMM',  bg: '#FBEAF0', fg: '#72243E', sub: '#D4537E' },
@@ -2148,24 +2171,44 @@ const COMPTES_CATEGORIES = [
 function categorieLigne(l) {
   return COMPTES_FAMILLE_TO_CAT[l.famille || ''] || 'Autre';
 }
-// Quantité signée : un avoir retranche toujours (quel que soit le signe brut de la colonne Qté).
+// Quantité / CA signés : un avoir retranche toujours (quel que soit le signe brut des colonnes).
 function estAvoir(l) { return /avoir|avr/i.test(l.typeDoc || '') || (l.ca || 0) < 0; }
 function qteSignee(l) { const q = Math.abs(l.qte || 0); return estAvoir(l) ? -q : q; }
+function caSignee(l) { const v = Math.abs(l.ca || 0); return estAvoir(l) ? -v : v; }
 // Une ligne est "active à ce jour" si aujourd'hui tombe entre sa date de début et sa date de fin.
 function ligneActive(l, today) { return !!(l.debut && l.fin && l.debut <= today && today <= l.fin); }
-function recapCategories(s, today) {
+
+// Cœur du comptage. On ne garde que les lignes actives à ce jour, on les regroupe par
+// (produit, période de service). Un avoir n'annule que la facture de MÊME produit et MÊME période :
+// un groupe qui ne contient que des avoirs (avoir "orphelin", ex. une facture annulée puis refacturée
+// autrement) est écarté. Renvoie les quantités par catégorie et le CA facturé en cours.
+function comptesActifs(lines, today) {
   const groupes = {};
-  s.lines.forEach(l => {
-    if (!ligneActive(l, today)) return;                 // on ne compte que les contrats en cours
-    const c = categorieLigne(l);
-    (groupes[c] = groupes[c] || []).push(l);
+  (lines || []).forEach(l => {
+    if (!ligneActive(l, today)) return;
+    const key = (l.ref || l.famille || '?') + '|' + l.debut.getTime() + '|' + l.fin.getTime();
+    const g = groupes[key] || (groupes[key] = { famille: l.famille, aFacture: false, qte: 0, ca: 0 });
+    if (!estAvoir(l)) g.aFacture = true;
+    g.qte += qteSignee(l);
+    g.ca += caSignee(l);
   });
+  const cats = {};
+  let caFacture = 0;
+  Object.values(groupes).forEach(g => {
+    if (!g.aFacture) return;                              // avoir orphelin → ignoré
+    const catKey = COMPTES_FAMILLE_TO_CAT[g.famille || ''] || 'Autre';
+    cats[catKey] = (cats[catKey] || 0) + g.qte;
+    caFacture += g.ca;
+  });
+  return { cats, caFacture };
+}
+
+function recapCategories(s, today) {
+  const cats = comptesActifs(s.lines, today).cats;
   const out = [];
   COMPTES_CATEGORIES.forEach(cat => {
-    const lignes = groupes[cat.key];
-    if (!lignes || !lignes.length) return;
-    const qte = Math.round(lignes.reduce((a, l) => a + qteSignee(l), 0));
-    if (qte <= 0) return;                                // qté nulle (ex: formation à 0) ou nette à 0 → rien afficher
+    const qte = Math.round(cats[cat.key] || 0);
+    if (qte <= 0) return;                                 // qté nulle ou nette à 0 → rien afficher
     out.push({ cat, qte });
   });
   return out;
@@ -2261,14 +2304,25 @@ function renderCompteCard(row, s, today) {
   }
 
   let recap = '';
+  // Signal : ce client a un avoir actif aujourd'hui et aucune correction manuelle → à vérifier
+  const avoirAVerifier = !row.corr && (s.lines || []).some(l => estAvoir(l) && ligneActive(l, today));
   if (expanded) {
-    const cats = recapCategories(s, today);
+    // Correction manuelle prioritaire sur le calcul automatique
+    const cats = row.corr
+      ? COMPTES_CATEGORIES.map(cat => ({ cat, qte: Math.round(row.corr[cat.key] || 0) })).filter(c => c.qte > 0)
+      : recapCategories(s, today);
     const chips = cats.map(c => `<span style="background:${c.cat.bg}; color:${c.cat.fg}; border-radius:999px; font-size:11px; padding:3px 11px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">${c.cat.key} <b style="font-weight:700;">×${c.qte}</b></span>`).join('');
     const nb = s.lines.length;
+    const marque = row.corr
+      ? `<span style="background:#FAEEDA; color:#854F0B; border-radius:999px; font-size:9px; font-weight:500; padding:2px 8px; margin-left:6px; text-transform:none; letter-spacing:0;">corrigé manuellement${row.corrVerifie ? ' · ' + escapeHtml(row.corrVerifie) : ''}</span>`
+      : '';
+    const vide = row.corr
+      ? 'Correction manuelle : aucun produit déclaré.'
+      : 'Aucun produit actif à ce jour.';
     recap = `
       <div style="border-top: 1px solid var(--line);" class="mt-3 pt-3">
-        <div class="stat-label mb-2" style="color: var(--blue);">Produits en cours à ce jour</div>
-        <div class="flex flex-wrap gap-1.5">${chips || '<span class="text-[11px]" style="color: var(--slate);">Aucun produit actif à ce jour.</span>'}</div>
+        <div class="stat-label mb-2" style="color: var(--blue);">Produits en cours à ce jour${marque}</div>
+        <div class="flex flex-wrap gap-1.5">${chips || `<span class="text-[11px]" style="color: var(--slate);">${vide}</span>`}</div>
         <div class="text-[10px] mt-3" style="color: var(--blue); cursor: pointer;" onclick="event.stopPropagation(); toggleCompteDetail('${escapeHtml(row.id)}')">${detailExpanded ? '▾ masquer le détail' : '▸ voir le détail des lignes (' + nb + ')'}</div>
         ${detail}
       </div>`;
@@ -2281,6 +2335,7 @@ function renderCompteCard(row, s, today) {
           <div class="flex items-center gap-2 flex-wrap">
             <span class="pill ${cfg.pillClass || ''}">${escapeHtml(row.statut)}</span>
             <span class="font-display font-medium text-base leading-tight">${escapeHtml(row.nom)}</span>
+            ${avoirAVerifier ? '<span class="pill" style="background:#FBEAF0; color:#72243E; font-size:9px; padding:2px 8px;">⚠ avoir en cours</span>' : ''}
           </div>
           <div class="text-[11px] mt-0.5" style="color: var(--slate);">${escapeHtml(row.type)} · ${escapeHtml(row.ville)} · ${escapeHtml(properRegion(row.region))}</div>
           <div class="text-[10px] mt-0.5 font-mono num-tab" style="color: var(--slate);">ID Sellsy ${escapeHtml(row.id)}</div>

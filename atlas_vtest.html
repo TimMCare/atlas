@@ -1050,8 +1050,8 @@ function hideLoader() { setTimeout(() => document.getElementById('loader')?.clas
 // ---- MAP INIT ----------------------------------------------------------
 function initMap() {
   STATE.map = L.map('map', { zoomControl: false }).setView([47.5, 2.5], 6);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(STATE.map);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a').addTo(STATE.map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a', {
     pane: 'shadowPane'
   }).addTo(STATE.map);
   L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
@@ -1066,7 +1066,7 @@ function initMap() {
   });
 
   STATE.dashMap = L.map('dash-map', { zoomControl: false, attributionControl: false }).setView([46.5, 2.5], 5);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png').addTo(STATE.dashMap);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a').addTo(STATE.dashMap);
   STATE.dashLayer = L.layerGroup().addTo(STATE.dashMap);
   STATE.labelsLayer = L.layerGroup().addTo(STATE.dashMap);
 

@@ -66,6 +66,15 @@ select.input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xml
 .map-tools{position:absolute;top:12px;left:12px;z-index:1000;display:flex;flex-direction:column;gap:8px;align-items:flex-start;max-width:calc(100% - 24px)}
 .tool{border:0;background:#fff;box-shadow:var(--shadow-sm);border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700;color:var(--blue-deep);display:inline-flex;align-items:center;gap:6px}
 .tool:hover{background:var(--sky)}
+.tool .sw{width:26px;height:15px;border-radius:999px;background:var(--sky-2);position:relative;display:inline-block;transition:background .15s}
+.tool .sw::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.tool.on{background:var(--blue-deep);color:#fff}
+.tool.on .sw{background:#7FB3E3}
+.tool.on .sw::after{transform:translateX(11px)}
+.legend .row.click{cursor:pointer;border-radius:6px;padding:1px 3px;margin:0 -3px}
+.legend .row.click:hover{background:var(--sky)}
+.legend .row.off{opacity:.35}
+.legend .row .c{margin-left:auto;padding-left:10px;color:var(--slate);font-variant-numeric:tabular-nums}
 .tool .badge{background:var(--blue);color:#fff;border-radius:999px;padding:1px 7px;font-size:10px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:600;display:inline-flex;gap:6px;align-items:center;box-shadow:var(--shadow-sm)}
@@ -193,6 +202,7 @@ tr.sub td{background:#FAFCFE;font-size:11px}
   .panel-body{padding:12px 16px 30px}
   .legend{bottom:calc(var(--sheet-h) + 10px);padding:5px 6px}
   .legend .row{display:none}
+  .legend.contact .row{display:flex}
   .legend select{margin:0}
   .map-tools{top:10px;left:10px}
   .tool{padding:7px 12px}
@@ -240,6 +250,7 @@ tr.sub td{background:#FAFCFE;font-size:11px}
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="tool" id="open-filters">⚙ Filtres <span class="badge hidden" id="filter-badge"></span></button>
           <button class="tool" id="locate-btn" title="Analyser autour de ma position">⌖ Autour de moi</button>
+          <button class="tool" id="contact-toggle" title="Colorer les clients selon leur dernier contact" aria-pressed="false"><span class="sw"></span> Dernier contact</button>
         </div>
         <div class="chips" id="active-chips"></div>
       </div>
@@ -273,11 +284,15 @@ tr.sub td{background:#FAFCFE;font-size:11px}
             <div class="lbl">Dernier contact <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:600">tous statuts</span></div>
             <select id="f-contact" class="input">
               <option value="">Peu importe</option>
-              <option value="lt30">Contactés il y a moins d'1 mois</option>
+              <option value="b:lt1m">Contactés il y a moins d'1 mois</option>
+              <option value="b:1to3">Contactés il y a 1 à 3 mois</option>
+              <option value="b:3to6">Contactés il y a 3 à 6 mois</option>
+              <option value="b:gt6">Contactés il y a plus de 6 mois</option>
               <option value="lt90">Contactés il y a moins de 3 mois</option>
               <option value="90">Pas de contact depuis plus de 3 mois (ou jamais)</option>
               <option value="180">Pas de contact depuis plus de 6 mois (ou jamais)</option>
-              <option value="never">Jamais contactés / pas de date</option>
+              <option value="cnever">Clients jamais contactés</option>
+              <option value="never">Jamais contactés / pas de date (tous statuts)</option>
             </select>
             <div class="small muted" style="margin-top:4px" id="contact-note"></div>
           </div>
@@ -402,6 +417,8 @@ const EQUIP = [
 ];
 const FAM_TO_EQ = {}; EQUIP.forEach(e => e.fam.forEach(f => FAM_TO_EQ[f] = e));
 
+// Tranche de la légende → valeur du filtre « Dernier contact »
+const CONTACT_OF = { lt1m: 'b:lt1m', '1to3': 'b:1to3', '3to6': 'b:3to6', gt6: 'b:gt6', never: 'cnever' };
 const RECENCY = [
   { key:'lt1m',  label:'< 1 mois',   color:'#43A047', max:30 },
   { key:'1to3',  label:'1 à 3 mois', color:'#E9B949', max:90 },
@@ -416,7 +433,7 @@ const S = {
   filtered: [],
   f: defaultFilters(),
   zone: null,               // { lat, lon, km, label }
-  colorMode: 'statut',
+  colorMode: loadLS('atlas.colorMode', 'statut'),
   ptab: 'resume', fiche: null, listSort: 'prio', ficheDetail: false,
   tour: loadLS('atlas.tour', { ids: [], ret: true }),
   myPos: null,
@@ -710,9 +727,11 @@ function match(r, skip) {
   }
   if (skip !== 'types' && f.types.size && !f.types.has(r.type)) return false;
   // Dernier contact : s'applique à tous les statuts (combinable avec les statuts affichés)
-  if (f.contact) {
+  if (f.contact && skip !== 'contact') {
     const since = r.contact ? -daysFrom(r.contact) : null;
-    if (f.contact === 'never') { if (since != null) return false; }
+    if (f.contact.startsWith('b:')) { if (recency(r).key !== f.contact.slice(2)) return false; }
+    else if (f.contact === 'cnever') { if (r.statut !== 'Client' || since != null) return false; }
+    else if (f.contact === 'never') { if (since != null) return false; }
     else if (f.contact.startsWith('lt')) { if (since == null || since > +f.contact.slice(2)) return false; }
     else if (since != null && since <= +f.contact) return false;
   }
@@ -833,7 +852,12 @@ function initMap() {
 }
 
 function markerColor(r) {
-  if (S.colorMode === 'contact') return recency(r).color;
+  if (S.colorMode === 'contact') {
+    // Clients : couleur selon la récence (jamais contacté = bleu nuit, bien visible)
+    if (r.statut === 'Client') return r.contact ? recency(r).color : '#23364E';
+    // Autres statuts : couleur seulement s'ils ont une date, sinon gris discret
+    return r.contact ? recency(r).color : '#DCE3EC';
+  }
   if (S.colorMode === 'prio') {
     if (r.statut === 'Refusé') return '#D5DEE8';
     return r.prio >= 45 ? '#E05252' : r.prio >= 25 ? '#ED8936' : '#C9D4E1';
@@ -875,8 +899,24 @@ function nearestAt(pt, fallback) {
 
 function renderLegend() {
   let items;
-  if (S.colorMode === 'contact') items = RECENCY.map(b => [b.color, b.label]);
-  else if (S.colorMode === 'prio') items = [['#E05252', 'Priorité forte'], ['#ED8936', 'Priorité moyenne'], ['#C9D4E1', 'Faible']];
+  $('contact-toggle').classList.toggle('on', S.colorMode === 'contact');
+  $('contact-toggle').setAttribute('aria-pressed', S.colorMode === 'contact');
+  $('legend').classList.toggle('contact', S.colorMode === 'contact');
+  if (S.colorMode === 'contact') {
+    // Légende = tranches de récence des clients affichés, avec compteurs ; un clic filtre la tranche
+    const cl = S.rows.filter(r => r.statut === 'Client' && match(r, 'contact'));
+    const n = k => cl.filter(r => (r.contact ? recency(r).key : 'never') === k).length;
+    $('legend').innerHTML = `<div style="font-weight:800;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--slate);margin-bottom:2px">Clients · dernier contact</div>` +
+      RECENCY.map(b => {
+        const col = b.key === 'never' ? '#23364E' : b.color;
+        const on = !S.f.contact || CONTACT_OF[b.key] === S.f.contact;
+        return `<div class="row click ${on ? '' : 'off'}" data-recency="${b.key}" title="Afficher seulement cette tranche"><span class="dot" style="background:${col}"></span>${b.key === 'never' ? 'Jamais contactés' : esc(b.label)}<span class="c">${n(b.key)}</span></div>`;
+      }).join('') +
+      `<div class="row" style="margin-top:3px"><span class="dot" style="background:#DCE3EC"></span><span class="muted">Autres statuts</span></div>
+       <button class="link" id="contact-off" style="margin-top:4px;font-size:10px;text-align:left">✕ Revenir aux couleurs par statut</button>`;
+    return;
+  }
+  if (S.colorMode === 'prio') items = [['#E05252', 'Priorité forte'], ['#ED8936', 'Priorité moyenne'], ['#C9D4E1', 'Faible']];
   else items = [...STATUS_ORDER].reverse().filter(s => S.f.status[s]).map(s => [STATUS[s].color, STATUS[s].label]);
   $('legend').innerHTML = `
     <select id="color-mode" aria-label="Couleur des points">
@@ -1404,7 +1444,20 @@ function bindUI() {
   $('f-types').onchange = e => { const v = e.target.value; e.target.checked ? S.f.types.add(v) : S.f.types.delete(v); applyFilters(); };
   $('types-none').onclick = () => { S.f.types = new Set(); applyFilters(); };
   $('active-chips').onclick = e => { const b = e.target.closest('[data-clear]'); if (b) clearFilter(b.dataset.clear); };
-  $('legend').onchange = e => { if (e.target.id === 'color-mode') { S.colorMode = e.target.value; renderMarkers(); } };
+  const setColorMode = m => { S.colorMode = m; saveLS('atlas.colorMode', m); renderMarkers(); };
+  $('legend').onchange = e => { if (e.target.id === 'color-mode') setColorMode(e.target.value); };
+  $('contact-toggle').onclick = () => {
+    const on = S.colorMode !== 'contact';
+    if (!on && S.f.contact) { S.f.contact = ''; applyFilters(); }   // en coupant, on retire aussi le filtre de tranche
+    setColorMode(on ? 'contact' : 'statut');
+  };
+  $('legend').onclick = e => {
+    if (e.target.id === 'contact-off') { $('contact-toggle').click(); return; }
+    const row = e.target.closest('[data-recency]'); if (!row) return;
+    const v = CONTACT_OF[row.dataset.recency];
+    S.f.contact = S.f.contact === v ? '' : v;   // re-clic sur la tranche active = tout réafficher
+    applyFilters();
+  };
 
   $('locate-btn').onclick = () => {
     if (!navigator.geolocation) return alert('Géolocalisation indisponible');

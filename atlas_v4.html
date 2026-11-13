@@ -270,13 +270,16 @@ tr.sub td{background:#FAFCFE;font-size:11px}
             <select id="f-hasnot" class="input" style="margin-top:6px"></select>
           </div>
           <div>
-            <div class="lbl">Dernier contact (clients)</div>
+            <div class="lbl">Dernier contact <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:600">tous statuts</span></div>
             <select id="f-contact" class="input">
               <option value="">Peu importe</option>
-              <option value="90">Pas de contact depuis plus de 3 mois</option>
-              <option value="180">Pas de contact depuis plus de 6 mois</option>
-              <option value="never">Jamais contactés</option>
+              <option value="lt30">Contactés il y a moins d'1 mois</option>
+              <option value="lt90">Contactés il y a moins de 3 mois</option>
+              <option value="90">Pas de contact depuis plus de 3 mois (ou jamais)</option>
+              <option value="180">Pas de contact depuis plus de 6 mois (ou jamais)</option>
+              <option value="never">Jamais contactés / pas de date</option>
             </select>
+            <div class="small muted" style="margin-top:4px" id="contact-note"></div>
           </div>
           <div>
             <div class="lbl">Échéance (clients)</div>
@@ -404,7 +407,7 @@ const RECENCY = [
   { key:'1to3',  label:'1 à 3 mois', color:'#E9B949', max:90 },
   { key:'3to6',  label:'3 à 6 mois', color:'#ED8936', max:180 },
   { key:'gt6',   label:'> 6 mois',   color:'#E05252', max:Infinity },
-  { key:'never', label:'Jamais',     color:'#23364E' }
+  { key:'never', label:'Jamais / pas de date', color:'#C3CEDB' }
 ];
 
 // ---------------------------------------------------------------- STATE
@@ -706,12 +709,18 @@ function match(r, skip) {
     if (f.dept && r.deptCode !== f.dept) return false;
   }
   if (skip !== 'types' && f.types.size && !f.types.has(r.type)) return false;
-  if (f.has || f.hasnot || f.contact || f.ech) {
+  // Dernier contact : s'applique à tous les statuts (combinable avec les statuts affichés)
+  if (f.contact) {
+    const since = r.contact ? -daysFrom(r.contact) : null;
+    if (f.contact === 'never') { if (since != null) return false; }
+    else if (f.contact.startsWith('lt')) { if (since == null || since > +f.contact.slice(2)) return false; }
+    else if (since != null && since <= +f.contact) return false;
+  }
+  // Matériel et échéance : n'ont de sens que pour les clients
+  if (f.has || f.hasnot || f.ech) {
     if (r.statut !== 'Client') return false;
     if (f.has && !r.eq[f.has]) return false;
     if (f.hasnot && r.eq[f.hasnot]) return false;
-    if (f.contact === 'never' && r.contact) return false;
-    if (f.contact && f.contact !== 'never' && r.contact && -daysFrom(r.contact) <= +f.contact) return false;
     if (f.ech === 'echu' && !r.echu) return false;
     if (f.ech && f.ech !== 'echu' && !(r.ech && daysFrom(r.ech) <= +f.ech)) return false;
   }
@@ -763,6 +772,12 @@ function refreshFilterUI() {
       <span class="n num">${sc[s] || 0}</span>
     </div>`).join('');
   $('dup-n').textContent = '(' + S.rows.filter(r => r.isDup).length + ')';
+  // Couverture des dates de contact, par statut affiché (pour ne pas prendre un filtre vide pour un bug)
+  const cov = STATUS_ORDER.filter(s => f.status[s]).map(s => {
+    const all = S.rows.filter(r => r.statut === s && !r.isDup);
+    return { s, n: all.length, d: all.filter(r => r.contact).length };
+  }).filter(x => x.n);
+  $('contact-note').textContent = 'Dates connues : ' + cov.reverse().map(x => `${STATUS[x.s].label.toLowerCase()} ${x.d}/${x.n}`).join(' · ');
   // types avec compteurs
   const tc = {}; S.rows.forEach(r => { if (match(r, 'types')) tc[r.type] = (tc[r.type] || 0) + 1; });
   f.types.forEach(t => { if (!(t in tc)) tc[t] = 0; });
@@ -818,7 +833,7 @@ function initMap() {
 }
 
 function markerColor(r) {
-  if (S.colorMode === 'contact') return r.statut === 'Client' ? recency(r).color : '#D5DEE8';
+  if (S.colorMode === 'contact') return recency(r).color;
   if (S.colorMode === 'prio') {
     if (r.statut === 'Refusé') return '#D5DEE8';
     return r.prio >= 45 ? '#E05252' : r.prio >= 25 ? '#ED8936' : '#C9D4E1';

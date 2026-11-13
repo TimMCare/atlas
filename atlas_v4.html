@@ -804,10 +804,12 @@ function clearFilter(k) {
 
 // ---------------------------------------------------------------- CARTE
 function initMap() {
-  S.map = L.map('map', { zoomControl: false, preferCanvas: true, zoomSnap: 0.25, zoomDelta: 0.5 }).setView([47.8, 2.3], 6);
+  S.map = L.map('map', { zoomControl: false, zoomSnap: 0.25, zoomDelta: 0.5 }).setView([47.8, 2.3], 6);
   L.tileLayer(TILE_BASE, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(S.map);
   L.tileLayer(TILE_LABELS, { pane: 'shadowPane', maxZoom: 19 }).addTo(S.map);
   L.control.zoom({ position: 'bottomright' }).addTo(S.map);
+  // UN SEUL canvas pour tous les tracés (points, zone, surbrillance, tournée) : un second canvas
+  // se poserait par-dessus et intercepterait les clics sur les points.
   S.renderer = L.canvas({ padding: 0.4, tolerance: 6 });
   S.zoneLayer = L.layerGroup().addTo(S.map);
   S.layer = L.layerGroup().addTo(S.map);
@@ -835,11 +837,25 @@ function renderMarkers() {
       fillColor: markerColor(r), fillOpacity: r.statut === 'Prospect' ? 0.75 : 0.95,
       color: r.isDup ? '#ED8936' : '#fff', weight: r.statut === 'Prospect' ? 1 : 1.6
     });
-    m.on('click', () => openFiche(r.id));
+    // e.containerPoint est « aimanté » par Leaflet sur le point qu'il a choisi : on relit la vraie position du clic
+    m.on('click', e => openFiche(nearestAt(e.originalEvent ? S.map.mouseEventToContainerPoint(e.originalEvent) : e.containerPoint, r).id));
     S.layer.addLayer(m);
   });
   renderLegend();
   highlight();
+}
+
+// Leaflet renvoie le DERNIER point dessiné sous le clic, pas le plus proche : quand des points se
+// chevauchent, on ouvrait le voisin. On choisit donc le point affiché le plus proche du clic
+// (léger avantage aux clients / pipeline, plus gros, sur les prospects).
+function nearestAt(pt, fallback) {
+  let best = fallback, bd = Infinity;
+  S.filtered.forEach(r => {
+    const p = S.map.latLngToContainerPoint([r.lat, r.lon]);
+    const d = Math.hypot(p.x - pt.x, p.y - pt.y) - (r.statut === 'Prospect' ? 0 : 1.5);
+    if (d < bd) { bd = d; best = r; }
+  });
+  return best;
 }
 
 function renderLegend() {
@@ -859,7 +875,7 @@ function highlight() {
   if (S.hl) { S.map.removeLayer(S.hl); S.hl = null; }
   const r = S.fiche && S.byId.get(S.fiche);
   if (!r) return;
-  S.hl = L.circleMarker([r.lat, r.lon], { radius: 13, color: '#2A5C9C', weight: 3, fill: false, interactive: false }).addTo(S.map);
+  S.hl = L.circleMarker([r.lat, r.lon], { renderer: S.renderer, radius: 13, color: '#2A5C9C', weight: 3, fill: false, interactive: false }).addTo(S.map);
 }
 
 function fitToFiltered() {
@@ -894,8 +910,8 @@ function ensureVisible(lat, lon) {
 function drawZone() {
   S.zoneLayer.clearLayers();
   if (!S.zone) return;
-  L.circle([S.zone.lat, S.zone.lon], { radius: S.zone.km * 1000, color: '#3D7CC9', weight: 1.5, dashArray: '5 5', fillColor: '#3D7CC9', fillOpacity: 0.05, interactive: false }).addTo(S.zoneLayer);
-  L.circleMarker([S.zone.lat, S.zone.lon], { radius: 6, color: '#fff', weight: 2.5, fillColor: '#23364E', fillOpacity: 1, interactive: false }).addTo(S.zoneLayer);
+  L.circle([S.zone.lat, S.zone.lon], { renderer: S.renderer, radius: S.zone.km * 1000, color: '#3D7CC9', weight: 1.5, dashArray: '5 5', fillColor: '#3D7CC9', fillOpacity: 0.05, interactive: false }).addTo(S.zoneLayer);
+  L.circleMarker([S.zone.lat, S.zone.lon], { renderer: S.renderer, radius: 6, color: '#fff', weight: 2.5, fillColor: '#23364E', fillOpacity: 1, interactive: false }).addTo(S.zoneLayer);
 }
 function clearZone() { S.zone = null; drawZone(); applyFilters({ fit: true }); }
 
@@ -1165,7 +1181,7 @@ function renderTourLayer() {
   const st = tourStops(); if (!st.length) return;
   const s = tourStart();
   const pts = [...(s ? [[s.lat, s.lon]] : []), ...st.map(r => [r.lat, r.lon]), ...(S.tour.ret && s ? [[s.lat, s.lon]] : [])];
-  if (S.ptab === 'tour' && !S.fiche) L.polyline(pts, { color: '#2A5C9C', weight: 2.5, opacity: 0.7, dashArray: '6 6', interactive: false }).addTo(S.tourLayer);
+  if (S.ptab === 'tour' && !S.fiche) L.polyline(pts, { renderer: S.renderer, color: '#2A5C9C', weight: 2.5, opacity: 0.7, dashArray: '6 6', interactive: false }).addTo(S.tourLayer);
   st.forEach((r, i) => {
     const m = L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: `<div class="tour-pin"><span>${i + 1}</span></div>`, iconSize: [22, 22], iconAnchor: [11, 22] }), zIndexOffset: 1000 });
     m.on('click', () => openFiche(r.id));

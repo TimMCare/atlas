@@ -1,14 +1,16 @@
 // Atlas v5 — service worker : ouverture instantanée et fonctionnement hors réseau.
 // Portée : le dossier /atlas/v5/ uniquement (la v4 n'est pas concernée).
 // Les données métier ne passent pas ici : elles sont gardées par l'application (IndexedDB).
-const VERSION = 'atlas5-2026-11-14d';
+const VERSION = 'atlas5-2026-11-14e';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'finess.json',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js'];
 const TILES = 'atlas5-tuiles', MAX_TILES = 2500;
 
+// cache: 'reload' : on prend les fichiers sur le serveur, pas dans le cache HTTP du navigateur
+// (GitHub Pages le garde 10 min, ce qui installait parfois l'ancienne version de l'application)
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('atlas5-') && k !== VERSION && k !== TILES).map(k => caches.delete(k))))
@@ -36,7 +38,7 @@ self.addEventListener('fetch', e => {
   if (!shell || url.searchParams.has('cb')) return;          // données (Google) : jamais interceptées
   e.respondWith(caches.open(VERSION).then(async c => {
     const hit = await c.match(req, { ignoreSearch: url.origin === location.origin });
-    const net = fetch(req).then(res => { if (res.ok || res.type === 'opaque') c.put(req, res.clone()); return res; }).catch(() => hit);
+    const net = (url.origin === location.origin ? fetch(req.url, { cache: 'no-cache' }) : fetch(req)).then(res => { if (res.ok || res.type === 'opaque') c.put(req, res.clone()); return res; }).catch(() => hit);
     return hit || net;
   }));
 });

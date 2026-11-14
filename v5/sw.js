@@ -1,7 +1,7 @@
 // Atlas v5 — service worker : ouverture instantanée et fonctionnement hors réseau.
 // Portée : le dossier /atlas/v5/ uniquement (la v4 n'est pas concernée).
 // Les données métier ne passent pas ici : elles sont gardées par l'application (IndexedDB).
-const VERSION = 'atlas5-2026-11-14e';
+const VERSION = 'atlas5-2026-11-14f';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icon.svg', 'finess.json',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js'];

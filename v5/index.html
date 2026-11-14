@@ -583,7 +583,8 @@ async function refreshData({ blocking = false, force = false } = {}) {
       const manque = COLS_REQUISES.filter(k => !data.main.h.includes(k));
       data = await fromCSV(data.hs, `Le script Google renvoie des données incomplètes (colonnes introuvables : ${manque.join(', ')}). Données lues dans le Sheet ; à corriger dans le script.`);
     } else if (!data || !data.main) data = await fromCSV();
-    if (S.data && !force && data.t <= S.data.t && !data.csv) { setSyncLabel(); $('sync-ico').classList.remove('spin'); return; }
+    // Rien de neuf : mêmes données du script que celles déjà affichées (des données de secours CSV sont toujours remplacées)
+    if (S.data && !S.data.csv && !data.csv && !force && data.t <= S.data.t) { setSyncLabel(); $('sync-ico').classList.remove('spin'); return; }
     ingest(data);
     idb.set('data', data);
     $('loader').classList.add('done');

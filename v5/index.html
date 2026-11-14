@@ -471,7 +471,7 @@ const S = {
 };
 function defaultFilters() {
   const st = {}; STATUS_ORDER.forEach(s => st[s] = STATUS[s].on);
-  return { region: 'MES', dept: '', status: st, dups: false, types: new Set(), has: '', hasnot: '', contact: '', ech: '', level: '' };
+  return { region: 'MES', dept: '', status: st, dups: false, types: new Set(), has: '', hasnot: '', contact: '', ech: '', levels: new Set() };   // levels vide = tous les niveaux de prospects
 }
 
 // ---------------------------------------------------------------- HELPERS
@@ -857,7 +857,7 @@ function match(r, skip) {
     if (f.dept && r.deptCode !== f.dept) return false;
   }
   if (skip !== 'types' && f.types.size && !f.types.has(r.type)) return false;
-  if (f.level && skip !== 'level' && r.statut === 'Prospect' && r.prio < LEVELS.find(l => l.key === f.level).min) return false;
+  if (skip !== 'level' && r.statut === 'Prospect' && f.levels.size && !f.levels.has(levelOf(r).key)) return false;
   // Dernier contact : s'applique à tous les statuts (combinable avec les statuts affichés)
   if (f.contact && skip !== 'contact') {
     const since = r.contact ? -daysFrom(r.contact) : null;
@@ -937,7 +937,8 @@ function refreshFilterUI() {
     <label><input type="checkbox" value="${esc(t)}" ${f.types.has(t) ? 'checked' : ''}><span style="flex:1">${esc(t)}</span><span class="muted num">${tc[t]}</span></label>`).join('')
     || '<div class="empty">Aucun type</div>';
   $('f-region').value = f.region; $('f-has').value = f.has; $('f-hasnot').value = f.hasnot;
-  $('f-contact').value = f.contact; $('f-ech').value = f.ech; $('f-dups').checked = f.dups; $('f-level').value = f.level;
+  $('f-contact').value = f.contact; $('f-ech').value = f.ech; $('f-dups').checked = f.dups;
+  $('f-level').value = !f.levels.size ? '' : f.levels.size === 1 && f.levels.has('p') ? 'p' : f.levels.size === 2 && f.levels.has('p') && f.levels.has('v') ? 'v' : '';
   $('f-region').disabled = $('f-dept').disabled = !!S.zone;
   $('zone-override').textContent = S.zone ? 'remplacé par la zone' : '';
 
@@ -948,7 +949,7 @@ function refreshFilterUI() {
   if (f.types.size) chips.push(['types', f.types.size === 1 ? [...f.types][0] : f.types.size + ' types']);
   if (f.has) chips.push(['has', 'Avec ' + EQUIP.find(e => e.key === f.has).label.toLowerCase()]);
   if (f.hasnot) chips.push(['hasnot', 'Sans ' + EQUIP.find(e => e.key === f.hasnot).label.toLowerCase()]);
-  if (f.level) chips.push(['level', $('f-level').selectedOptions[0].textContent]);
+  if (f.levels.size) chips.push(['levels', 'Prospects : ' + LEVELS.filter(l => f.levels.has(l.key)).map(l => l.label.toLowerCase()).join(', ')]);
   if (f.contact) chips.push(['contact', $('f-contact').selectedOptions[0].textContent]);
   if (f.ech) chips.push(['ech', $('f-ech').selectedOptions[0].textContent]);
   const hiddenSt = STATUS_ORDER.filter(s => STATUS[s].on && !f.status[s]);
@@ -1051,23 +1052,44 @@ function renderLegend() {
       `<button class="link" id="contact-off" style="margin-top:4px;font-size:10px;text-align:left">✕ Revenir aux couleurs normales</button>`;
     return;
   }
-  // Légende normale : statuts (clic = n'afficher que celui-ci, re-clic = tout réafficher) ;
-  // prospects détaillés par niveau (clic = n'afficher que ce niveau et au-dessus)
+  // Légende normale, à sélection multiple : statuts, puis « Prospects » (tous niveaux) et ses 3 niveaux.
   const sts = [...STATUS_ORDER].reverse().filter(s => s !== 'Prospect' && (STATUS[s].on || S.f.status[s]));
   const cnt = {}; S.rows.forEach(r => { if (match(r, 'status')) cnt[r.statut] = (cnt[r.statut] || 0) + 1; });
-  const prosOn = S.f.status['Prospect'];
+  const prosOn = S.f.status['Prospect'], lv = S.f.levels;
   const pros = S.rows.filter(r => r.statut === 'Prospect' && match(r, 'status') && match(r, 'level'));
-  $('legend').innerHTML = sts.map(s => `<div class="row click ${S.f.status[s] ? '' : 'off'}" data-solo="${esc(s)}" title="${soloStatus() === s ? 'Réafficher tout' : 'Afficher seulement les ' + esc(STATUS[s].label.toLowerCase())}"><span class="dot" style="background:${STATUS[s].color}"></span>${esc(STATUS[s].label)}<span class="c">${cnt[s] || 0}</span></div>`).join('') +
-    head('Prospects') + LEVELS.map(l => {
-      const on = prosOn && (!S.f.level || LEVELS.findIndex(x => x.key === l.key) <= LEVELS.findIndex(x => x.key === S.f.level));
-      return `<div class="row click ${on ? '' : 'off'}" data-level="${l.key}" title="Afficher à partir de ce niveau"><span class="dot" style="background:${l.color}"></span>${l.label}<span class="c">${pros.filter(r => levelOf(r) === l).length}</span></div>`;
-    }).join('');
+  const tip = 'Clic : afficher seulement celui-ci, puis ajouter / retirer d\'autres éléments';
+  $('legend').innerHTML = sts.map(s => `<div class="row click ${S.f.status[s] ? '' : 'off'}" data-sel="s" data-key="${esc(s)}" title="${tip}"><span class="dot" style="background:${STATUS[s].color}"></span>${esc(STATUS[s].label)}<span class="c">${cnt[s] || 0}</span></div>`).join('') +
+    `<div class="row click ${prosOn ? '' : 'off'}" data-sel="s" data-key="Prospect" title="${tip}" style="margin-top:3px"><span class="dot" style="background:conic-gradient(${LEVELS.map((l, i) => `${l.color} ${i * 120}deg ${(i + 1) * 120}deg`).join(',')})"></span><b>Prospects</b><span class="c">${pros.length}</span></div>` +
+    LEVELS.map(l => {
+      const on = prosOn && (!lv.size || lv.has(l.key));
+      return `<div class="row click ${on ? '' : 'off'}" data-sel="l" data-key="${l.key}" title="${tip}" style="padding-left:12px"><span class="dot" style="background:${l.color}"></span>${l.label}<span class="c">${pros.filter(r => levelOf(r) === l).length}</span></div>`;
+    }).join('') +
+    (legendIsDefault() ? '' : `<button class="link" id="legend-reset" style="margin-top:4px;font-size:10px;text-align:left">✕ Tout réafficher</button>`);
 }
-// Statut isolé (un seul statut affiché), sinon null
-function soloStatus() { const on = STATUS_ORDER.filter(s => S.f.status[s]); return on.length === 1 ? on[0] : null; }
-function toggleSolo(s) {
-  if (soloStatus() === s) S.f.status = defaultFilters().status;           // re-clic : tout réafficher
-  else { STATUS_ORDER.forEach(k => S.f.status[k] = k === s); if (s !== 'Prospect') S.f.level = ''; }
+// Sélection dans la légende : 1er clic = n'afficher que cet élément ; clics suivants = ajouter / retirer ;
+// retirer le dernier élément affiché = tout réafficher. « Prospects » = tous les niveaux d'un coup.
+function legendIsDefault() {
+  const d = defaultFilters().status;
+  return STATUS_ORDER.every(s => !!S.f.status[s] === !!d[s]) && !S.f.levels.size;
+}
+function selectLegend(kind, key) {
+  const f = S.f;
+  if (legendIsDefault()) {
+    STATUS_ORDER.forEach(s => f.status[s] = false);
+    if (kind === 's') f.status[key] = true;
+    else { f.status.Prospect = true; f.levels = new Set([key]); }
+  } else if (kind === 's' && key !== 'Prospect') f.status[key] = !f.status[key];
+  else if (kind === 's') {
+    if (f.status.Prospect && !f.levels.size) f.status.Prospect = false;
+    else { f.status.Prospect = true; f.levels = new Set(); }
+  } else if (!f.status.Prospect) { f.status.Prospect = true; f.levels = new Set([key]); }
+  else {
+    const set = f.levels.size ? new Set(f.levels) : new Set(LEVELS.map(l => l.key));
+    set.has(key) ? set.delete(key) : set.add(key);
+    if (!set.size) { f.status.Prospect = false; f.levels = new Set(); }
+    else f.levels = set.size === LEVELS.length ? new Set() : set;
+  }
+  if (!STATUS_ORDER.some(s => f.status[s])) { f.status = defaultFilters().status; f.levels = new Set(); }
   applyFilters();
 }
 
@@ -1629,7 +1651,8 @@ function bindUI() {
   $('reset-filters').onclick = () => { S.f = defaultFilters(); buildDeptOptions(); applyFilters(); };
   $('f-region').onchange = e => { S.f.region = e.target.value; S.f.dept = ''; buildDeptOptions(); applyFilters({ fit: true }); };
   $('f-dept').onchange = e => { S.f.dept = e.target.value; applyFilters({ fit: true }); };
-  ['has', 'hasnot', 'contact', 'ech', 'level'].forEach(k => $('f-' + k).onchange = e => { S.f[k] = e.target.value; applyFilters(); });
+  ['has', 'hasnot', 'contact', 'ech'].forEach(k => $('f-' + k).onchange = e => { S.f[k] = e.target.value; applyFilters(); });
+  $('f-level').onchange = e => { const v = e.target.value; S.f.levels = new Set(v === 'p' ? ['p'] : v === 'v' ? ['p', 'v'] : []); applyFilters(); };
   $('f-dups').onchange = e => { S.f.dups = e.target.checked; applyFilters(); };
   $('f-status').onclick = e => { const t = e.target.closest('[data-status]'); if (!t) return; S.f.status[t.dataset.status] = !S.f.status[t.dataset.status]; applyFilters(); };
   $('f-types').onchange = e => { const v = e.target.value; e.target.checked ? S.f.types.add(v) : S.f.types.delete(v); applyFilters(); };
@@ -1643,15 +1666,9 @@ function bindUI() {
   };
   $('legend').onclick = e => {
     if (e.target.id === 'contact-off') { $('contact-toggle').click(); return; }
-    const lv = e.target.closest('[data-level]');
-    const so = e.target.closest('[data-solo]');
-    if (so) return toggleSolo(so.dataset.solo);
-    if (lv) {
-      const k = lv.dataset.level === 't' ? '' : lv.dataset.level;
-      if (!S.f.status['Prospect']) { S.f.status = defaultFilters().status; S.f.level = k; }   // prospects masqués : on les réaffiche
-      else S.f.level = S.f.level === k ? '' : k;
-      applyFilters(); return;
-    }
+    if (e.target.id === 'legend-reset') { S.f.status = defaultFilters().status; S.f.levels = new Set(); applyFilters(); return; }
+    const sel = e.target.closest('[data-sel]');
+    if (sel) return selectLegend(sel.dataset.sel, sel.dataset.key);
     const row = e.target.closest('[data-recency]'); if (!row) return;
     const v = CONTACT_OF[row.dataset.recency];
     S.f.contact = S.f.contact === v ? '' : v;   // re-clic sur la tranche active = tout réafficher

@@ -401,6 +401,7 @@ const SHEET_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTRKK5qS8gxG
 const SHEET_CSV_URL  = SHEET_BASE + "/pub?output=csv";
 const SELLSY_CSV_URL = SHEET_BASE + "/pub?gid=1212909821&single=true&output=csv";
 const HUBSPOT_REC = id => `https://app-eu1.hubspot.com/contacts/145260249/record/0-2/${id}`;
+const HUBSPOT_DEAL = id => `https://app-eu1.hubspot.com/contacts/145260249/record/0-3/${id}`;
 const TILE_BASE   = 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a';
 const TILE_LABELS = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a';
 
@@ -568,6 +569,7 @@ async function fromCSV(hs, raison) {
   const [main, sellsy] = await Promise.all([fetchText(SHEET_CSV_URL), fetchText(SELLSY_CSV_URL).catch(() => '')]);
   const tab = txt => { const a = Papa.parse(txt || '', { skipEmptyLines: true }).data || []; return { h: a[0] || [], r: a.slice(1) }; };
   return { v: 5, t: Date.now(), main: tab(main), sellsy: tab(sellsy), hs: hs || (S.data && S.data.hs) || {}, hsHors: [], csv: true,
+    devis: (S.data && S.data.devis) || {},
     erreurs: [raison || 'Application Web Google indisponible : données lues directement dans le Sheet, HubSpot = dernière version connue'] };
 }
 
@@ -611,6 +613,7 @@ const asObjects = t => (t && t.r ? t.r : []).map(l => { const o = {}; t.h.forEac
 function ingest(data) {
   S.data = data;
   S.hs = data.hs || {};
+  S.devis = data.devis || (S.data && S.data.devis) || {};
   S.comptes = aggregateSellsy(asObjects(data.sellsy));
   S.rows = buildRows(asObjects(data.main));
   S.byId = new Map(S.rows.map(r => [r.id, r]));
@@ -688,6 +691,10 @@ function buildRows(data) {
     if (statut === 'En discussion') statut = 'Discussion';
     if (!STATUS[statut]) statut = 'Prospect';
     const id = (row['ID'] || '').toString().trim();
+    // Devis envoyés (affaires HubSpot au stade « Devis envoyé ») : [id affaire, nom, montant, date ms]
+    const devis = ((S.devis || {})[id] || []).slice().sort((a, b) => b[3] - a[3]);
+    const statutSheet = statut;
+    if (devis.length && ['Prospect', 'Discussion', 'Résilié', 'Refusé'].includes(statut)) statut = 'Devis envoyé';   // les clients restent clients
     // Dernier contact = le plus récent entre le Sheet, l'ancienne colonne HubSpot et HubSpot (en direct)
     const hs = S.hs[id] || null;
     const contact = [pdate(row['Dernier contact']), pdate(row['Dernier appel/ réu auto de HS']), hs && hs.l ? new Date(hs.l) : null]
@@ -720,6 +727,9 @@ function buildRows(data) {
     // CA récurrent = MRR annualisé Sellsy des contrats en cours ; à défaut, colonne CA du Sheet
     if (r.compte && r.compte.mrrA > 0) { r.ca = r.compte.mrrA; r.caSrc = 'Sellsy'; }
     else { r.ca = r.caSheet; r.caSrc = r.caSheet ? 'Sheet' : ''; }
+    r.devis = devis; r.devisMontant = devis.reduce((s, d) => s + (+d[2] || 0), 0);
+    r.statutSheet = statutSheet !== r.statut ? statutSheet : '';
+    if (PIPE.includes(r.statut) && r.devisMontant > 0 && r.caSrc !== 'Sellsy') { r.ca = r.devisMontant; r.caSrc = 'HubSpot'; }
     r.ech = r.compte ? r.compte.echeance : null;
     r.echu = r.compte && !r.compte.echeance && r.compte.derniereFin ? r.compte.derniereFin : null;
     out.push(r);
@@ -820,10 +830,12 @@ function computePriorities() {
       else if (since > 180) { r.prio += 25; r.why.push({ t: `Pas de contact depuis ${Math.round(since / 30)} mois`, c: 'amber' }); }
       if (r.eq.licence && !r.eq.pack) { r.prio += 10; r.why.push({ t: 'Upsell : pas de pack audio', c: 'purple' }); }
       if (r.eq.licence && !r.eq.formation) { r.prio += 5; r.why.push({ t: 'Pas de formation en cours', c: 'purple' }); }
+      if (r.devis.length) { r.prio += 10; r.why.unshift({ t: `Devis en cours : ${keur(r.devisMontant)}`, c: 'purple' }); }
     } else if (PIPE.includes(r.statut)) {
       r.prio = 45;
       const since = r.contact ? -daysFrom(r.contact) : null;
       r.why.push({ t: r.statut === 'Devis envoyé' ? 'Devis à relancer' : 'Discussion en cours', c: 'purple' });
+      if (r.devis.length) r.why.push({ t: `${r.devis.length > 1 ? r.devis.length + ' devis · ' : ''}${keur(r.devisMontant)} · envoyé le ${fdate(new Date(r.devis[0][3]))}`, c: '' });
       if (since != null && since > 30) r.why.push({ t: `Dernier contact il y a ${since} j`, c: 'amber' });
     }
   });
@@ -1155,6 +1167,8 @@ function eqChips(eq, empty) {
 }
 
 const byPrio = (a, b) => (b.prio - (b._d || 0) * 0.4) - (a.prio - (a._d || 0) * 0.4);
+// Montant pipeline : somme des devis HubSpot ouverts, à défaut colonne CA du Sheet (règle v4)
+const pipeAmt = r => r.devisMontant || r.caSheet || 0;
 
 function resumeHTML() {
   const L_ = S.filtered;
@@ -1162,12 +1176,13 @@ function resumeHTML() {
   const pipe = L_.filter(r => PIPE.includes(r.statut));
   const pros = L_.filter(r => r.statut === 'Prospect');
   const res = L_.filter(r => r.statut === 'Résilié');
-  const caCl = cl.reduce((s, r) => s + r.ca, 0), caPipe = pipe.reduce((s, r) => s + r.caSheet, 0);
+  const caCl = cl.reduce((s, r) => s + r.ca, 0), caPipe = pipe.reduce((s, r) => s + pipeAmt(r), 0);
+  const upsell = cl.reduce((s, r) => s + (r.devisMontant || 0), 0);
   const soon = cl.filter(r => r.ech && daysFrom(r.ech) <= 120).length;
 
   let h = `<div class="sec"><div class="kpis">
     <div class="kpi"><div class="k">Clients</div><div class="v num" style="color:var(--green)">${cl.length}</div><div class="s num">${keur(caCl)} récurrent/an</div></div>
-    <div class="kpi"><div class="k">Pipeline</div><div class="v num" style="color:var(--blue)">${pipe.length}</div><div class="s num">${keur(caPipe)} en devis</div></div>
+    <div class="kpi"><div class="k">Pipeline</div><div class="v num" style="color:var(--blue)">${pipe.length}</div><div class="s num">${keur(caPipe)} en devis${upsell ? ` · + ${keur(upsell)} upsell clients` : ''}</div></div>
     <div class="kpi"><div class="k">Prospects</div><div class="v num">${pros.length}</div><div class="s">${res.length} résilié${res.length > 1 ? 's' : ''} à reconquérir</div></div>
     <div class="kpi"><div class="k">Renouvellements</div><div class="v num" style="color:${soon ? 'var(--amber)' : 'var(--ink)'}">${soon}</div><div class="s">dans les 4 mois</div></div>
   </div></div>`;
@@ -1257,6 +1272,13 @@ function ficheHTML(r) {
       <div class="small muted" style="margin-top:6px">Lien client ${p.lien || 0}/35 · Échange ${p.echange || 0}/25 · Taille ${p.taille || 0}/25 · Type ${p.type || 0}/15</div></div>`;
   } else if (r.why.length) h += `<div class="sec"><div class="sec-t">À surveiller</div><div class="reasons">${r.why.map(w => `<span class="why ${w.c}">${esc(w.t)}</span>`).join('')}</div></div>`;
 
+  // Devis envoyés (HubSpot)
+  if (r.devis.length) {
+    h += `<div class="sec"><div class="sec-t"><span>Devis envoyé${r.devis.length > 1 ? 's' : ''} · ${eur(r.devisMontant)}</span></div>
+      ${r.statutSheet ? `<div class="small muted" style="margin:-4px 0 6px">Statut « Devis envoyé » d'après HubSpot (Sheet : ${esc(r.statutSheet)})</div>` : ''}
+      <div class="lines">${r.devis.map(d => `<div class="line"><div style="min-width:0"><a class="link" target="_blank" rel="noopener" href="${HUBSPOT_DEAL(d[0])}">${esc(d[1] || 'Devis')}</a><div class="muted">envoyé le ${fdate(new Date(d[3]))}</div></div><div class="num" style="white-space:nowrap"><b>${eur(d[2])}</b></div></div>`).join('')}</div></div>`;
+  }
+
   // HubSpot : activité commerciale (lecture seule) — le détail des contacts reste dans HubSpot
   const hs = r.hs;
   if (hs) {
@@ -1285,7 +1307,7 @@ function ficheHTML(r) {
   const showMoney = r.statut === 'Client' || r.compte || r.ca > 0;
   if (showMoney) {
     h += `<div class="sec"><div class="kpis">
-      <div class="kpi"><div class="k">${PIPE.includes(r.statut) ? 'Montant devis' : 'CA récurrent / an'}</div><div class="v num">${r.ca ? eur(r.ca) : '—'}</div><div class="s">${r.caSrc === 'Sellsy' ? 'MRR annualisé Sellsy' : r.caSrc === 'Sheet' ? 'colonne CA du Sheet' : ''}</div></div>
+      <div class="kpi"><div class="k">${PIPE.includes(r.statut) ? 'Montant devis' : 'CA récurrent / an'}</div><div class="v num">${r.ca ? eur(r.ca) : '—'}</div><div class="s">${r.caSrc === 'Sellsy' ? 'MRR annualisé Sellsy' : r.caSrc === 'Sheet' ? 'colonne CA du Sheet' : r.caSrc === 'HubSpot' ? 'devis HubSpot' : ''}</div></div>
       <div class="kpi"><div class="k">Échéance</div><div class="v num" style="font-size:16px;color:${de != null ? (de <= 60 ? 'var(--red)' : de <= 120 ? 'var(--amber)' : 'var(--green)') : r.echu ? 'var(--red)' : 'var(--ink)'}">${r.ech ? fdate(r.ech) : r.echu ? 'Échu' : '—'}</div><div class="s">${de != null ? `dans ${de} j` : r.echu ? 'depuis le ' + fdate(r.echu) : ''}</div></div>
     </div>`;
     if (r.compte && r.caSheet && r.caSrc === 'Sellsy' && Math.abs(r.caSheet - r.ca) / Math.max(r.ca, 1) > 0.2)
@@ -1534,7 +1556,8 @@ function renderSynthese() {
       const k = key(r); const a = m[k] || (m[k] = { n: 0, c: 0, ca: 0, pipe: 0, p: 0, res: 0 });
       a.n++;
       if (r.statut === 'Client') { a.c++; a.ca += r.ca; }
-      if (PIPE.includes(r.statut)) a.pipe += r.caSheet;
+      if (PIPE.includes(r.statut)) a.pipe += pipeAmt(r);
+      else if (r.statut === 'Client') a.pipe += r.devisMontant || 0;      // devis d'upsell
       if (r.statut === 'Prospect') a.p++;
       if (r.statut === 'Résilié') a.res++;
     });

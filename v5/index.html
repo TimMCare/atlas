@@ -396,8 +396,10 @@ tr.sub td{background:#FAFCFE;font-size:11px}
 const DATA_URL = new URLSearchParams(location.search).get('data') ||
   '';   // ← URL de l'application Web Google (…/exec), renseignée après déploiement du script
 const FINESS_URL = 'finess.json';
-const SHEET_CSV_URL  = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS260Q3Tz1OIuDTZOu7ptoADnF26sjp3RLFOPYzylLZ77ZiP1KuA11-OzxNM6ktWkwL1qpylnWb1ZV4/pub?output=csv";
-const SELLSY_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS260Q3Tz1OIuDTZOu7ptoADnF26sjp3RLFOPYzylLZ77ZiP1KuA11-OzxNM6ktWkwL1qpylnWb1ZV4/pub?gid=1212909821&single=true&output=csv";
+// Sheet « TEST.V2 » (copie dédiée à la v5 ; la v4 garde son propre Sheet)
+const SHEET_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTRKK5qS8gxG9jt7QVd0-zUs8iedt3PA9IVe3UNunudWOL9btWkqyCY3Ki7UFS2nzxTTFnD7p6DRz1a";
+const SHEET_CSV_URL  = SHEET_BASE + "/pub?output=csv";
+const SELLSY_CSV_URL = SHEET_BASE + "/pub?gid=1212909821&single=true&output=csv";
 const HUBSPOT_REC = id => `https://app-eu1.hubspot.com/contacts/145260249/record/0-2/${id}`;
 const TILE_BASE   = 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a';
 const TILE_LABELS = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a';
@@ -1021,14 +1023,24 @@ function renderLegend() {
       `<button class="link" id="contact-off" style="margin-top:4px;font-size:10px;text-align:left">✕ Revenir aux couleurs normales</button>`;
     return;
   }
-  // Légende normale : statuts affichés ; les prospects sont détaillés par niveau (clic = filtrer)
-  const sts = [...STATUS_ORDER].reverse().filter(s => S.f.status[s] && s !== 'Prospect');
-  const pros = S.f.status['Prospect'] ? S.rows.filter(r => r.statut === 'Prospect' && match(r, 'level')) : [];
-  $('legend').innerHTML = sts.map(s => `<div class="row"><span class="dot" style="background:${STATUS[s].color}"></span>${esc(STATUS[s].label)}</div>`).join('') +
-    (S.f.status['Prospect'] ? head('Prospects') + LEVELS.map(l => {
-      const on = !S.f.level || LEVELS.findIndex(x => x.key === l.key) <= LEVELS.findIndex(x => x.key === S.f.level);
+  // Légende normale : statuts (clic = n'afficher que celui-ci, re-clic = tout réafficher) ;
+  // prospects détaillés par niveau (clic = n'afficher que ce niveau et au-dessus)
+  const sts = [...STATUS_ORDER].reverse().filter(s => s !== 'Prospect' && (STATUS[s].on || S.f.status[s]));
+  const cnt = {}; S.rows.forEach(r => { if (match(r, 'status')) cnt[r.statut] = (cnt[r.statut] || 0) + 1; });
+  const prosOn = S.f.status['Prospect'];
+  const pros = S.rows.filter(r => r.statut === 'Prospect' && match(r, 'status') && match(r, 'level'));
+  $('legend').innerHTML = sts.map(s => `<div class="row click ${S.f.status[s] ? '' : 'off'}" data-solo="${esc(s)}" title="${soloStatus() === s ? 'Réafficher tout' : 'Afficher seulement les ' + esc(STATUS[s].label.toLowerCase())}"><span class="dot" style="background:${STATUS[s].color}"></span>${esc(STATUS[s].label)}<span class="c">${cnt[s] || 0}</span></div>`).join('') +
+    head('Prospects') + LEVELS.map(l => {
+      const on = prosOn && (!S.f.level || LEVELS.findIndex(x => x.key === l.key) <= LEVELS.findIndex(x => x.key === S.f.level));
       return `<div class="row click ${on ? '' : 'off'}" data-level="${l.key}" title="Afficher à partir de ce niveau"><span class="dot" style="background:${l.color}"></span>${l.label}<span class="c">${pros.filter(r => levelOf(r) === l).length}</span></div>`;
-    }).join('') : '');
+    }).join('');
+}
+// Statut isolé (un seul statut affiché), sinon null
+function soloStatus() { const on = STATUS_ORDER.filter(s => S.f.status[s]); return on.length === 1 ? on[0] : null; }
+function toggleSolo(s) {
+  if (soloStatus() === s) S.f.status = defaultFilters().status;           // re-clic : tout réafficher
+  else { STATUS_ORDER.forEach(k => S.f.status[k] = k === s); if (s !== 'Prospect') S.f.level = ''; }
+  applyFilters();
 }
 
 function highlight() {
@@ -1593,7 +1605,14 @@ function bindUI() {
   $('legend').onclick = e => {
     if (e.target.id === 'contact-off') { $('contact-toggle').click(); return; }
     const lv = e.target.closest('[data-level]');
-    if (lv) { const k = lv.dataset.level === 't' ? '' : lv.dataset.level; S.f.level = S.f.level === k ? '' : k; applyFilters(); return; }
+    const so = e.target.closest('[data-solo]');
+    if (so) return toggleSolo(so.dataset.solo);
+    if (lv) {
+      const k = lv.dataset.level === 't' ? '' : lv.dataset.level;
+      if (!S.f.status['Prospect']) { S.f.status = defaultFilters().status; S.f.level = k; }   // prospects masqués : on les réaffiche
+      else S.f.level = S.f.level === k ? '' : k;
+      applyFilters(); return;
+    }
     const row = e.target.closest('[data-recency]'); if (!row) return;
     const v = CONTACT_OF[row.dataset.recency];
     S.f.contact = S.f.contact === v ? '' : v;   // re-clic sur la tranche active = tout réafficher

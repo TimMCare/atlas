@@ -532,8 +532,9 @@ const idb = (() => {
 window.addEventListener('DOMContentLoaded', async () => {
   initMap(); bindUI();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
-  const [cache, fin] = await Promise.all([idb.get('data'), idb.get('finess')]);
+  let [cache, fin] = await Promise.all([idb.get('data'), idb.get('finess')]);
   S.finess = (fin && fin.d) || {};
+  if (!validData(cache)) cache = null;
   if (cache) { ingest(cache); $('loader').classList.add('done'); }
   if (!fin) loadFiness();
   await refreshData({ blocking: !cache });
@@ -552,11 +553,16 @@ async function fetchJSON(url) {
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
-// Secours : lecture directe des CSV publiés (sans HubSpot) si l'application Web ne répond pas
-async function fromCSV() {
+// Données exploitables ? (colonnes indispensables présentes — protège contre un script mal recopié)
+const COLS_REQUISES = ['ID', 'Statut', 'Nom Établissement', 'Type', 'Latitude', 'Longitude', 'Ville'];
+const validData = d => !!(d && d.main && d.main.h && COLS_REQUISES.every(k => d.main.h.includes(k)) && d.main.r.length > 100);
+
+// Secours : lecture directe des CSV publiés si l'application Web ne répond pas ou renvoie des données incomplètes
+async function fromCSV(hs, raison) {
   const [main, sellsy] = await Promise.all([fetchText(SHEET_CSV_URL), fetchText(SELLSY_CSV_URL).catch(() => '')]);
   const tab = txt => { const a = Papa.parse(txt || '', { skipEmptyLines: true }).data || []; return { h: a[0] || [], r: a.slice(1) }; };
-  return { v: 5, t: Date.now(), main: tab(main), sellsy: tab(sellsy), hs: (S.data && S.data.hs) || {}, hsHors: [], erreurs: ['Données lues directement dans le Sheet (application Web Google indisponible) : HubSpot = dernière version connue'], csv: true };
+  return { v: 5, t: Date.now(), main: tab(main), sellsy: tab(sellsy), hs: hs || (S.data && S.data.hs) || {}, hsHors: [], csv: true,
+    erreurs: [raison || 'Application Web Google indisponible : données lues directement dans le Sheet, HubSpot = dernière version connue'] };
 }
 
 // force = bouton ↻ : l'application Web reconstruit tout (HubSpot compris) avant de répondre
@@ -567,7 +573,10 @@ async function refreshData({ blocking = false, force = false } = {}) {
   try {
     let data = null;
     if (DATA_URL) { try { data = await fetchJSON(DATA_URL + (force ? '?refresh=1' : '')); } catch (e) { console.warn('Application Web', e); } }
-    if (!data || !data.main) data = await fromCSV();
+    if (data && data.main && !validData(data)) {
+      const manque = COLS_REQUISES.filter(k => !data.main.h.includes(k));
+      data = await fromCSV(data.hs, `Le script Google renvoie des données incomplètes (colonnes introuvables : ${manque.join(', ')}). Données lues dans le Sheet ; à corriger dans le script.`);
+    } else if (!data || !data.main) data = await fromCSV();
     if (S.data && !force && data.t <= S.data.t && !data.csv) { setSyncLabel(); $('sync-ico').classList.remove('spin'); return; }
     ingest(data);
     idb.set('data', data);

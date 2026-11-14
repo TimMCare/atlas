@@ -1,0 +1,1654 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Atlas v5</title>
+<meta name="theme-color" content="#3D7CC9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Atlas">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600&family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --blue:#3D7CC9; --blue-deep:#2A5C9C; --blue-soft:#7FB3E3;
+  --sky:#EDF4FB; --sky-2:#DEEBF8; --paper:#FFFFFF;
+  --ink:#23364E; --slate:#6E85A3; --slate-soft:#9FB2C8; --line:#DCE7F3;
+  --green:#43A047; --red:#E05252; --amber:#ED8936; --purple:#7E57C2; --yellow:#E9B949;
+  --shadow:0 6px 20px rgba(42,92,156,.14); --shadow-sm:0 2px 8px rgba(42,92,156,.10);
+  --sheet-h:150px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font-family:'Mulish',system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+.display{font-family:'Jost','Century Gothic',sans-serif}
+.hidden{display:none!important}
+.muted{color:var(--slate)}
+.small{font-size:11px}
+
+#app{display:grid;grid-template-rows:auto 1fr;height:100vh;height:100dvh}
+
+/* ---------- Header ---------- */
+.top{position:relative;display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--paper);z-index:1600}
+.brand{font-family:'Jost',sans-serif;font-weight:300;font-size:24px;letter-spacing:.04em;color:var(--blue-deep);line-height:1}
+.tabs{display:flex;gap:2px;padding:3px;background:var(--sky);border-radius:999px}
+.tab{border:0;background:transparent;padding:7px 16px;border-radius:999px;font-family:'Jost',sans-serif;font-weight:500;font-size:14px;color:var(--slate)}
+.tab.active{background:var(--blue);color:#fff}
+.search-wrap{position:relative;flex:1;max-width:460px;margin-left:auto}
+.input{width:100%;background:var(--paper);border:1.5px solid var(--line);border-radius:12px;padding:9px 12px;font:inherit;font-size:13px;color:var(--ink);outline:none}
+.input:focus{border-color:var(--blue-soft);box-shadow:0 0 0 3px rgba(127,179,227,.25)}
+select.input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Cpath d='M2 4l3 3 3-3' stroke='%233D7CC9' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px}
+#search-results{position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);z-index:3000;max-height:360px;overflow:auto}
+.sr{display:flex;gap:8px;align-items:center;padding:9px 14px;font-size:12px;cursor:pointer}
+.sr+.sr{border-top:1px solid var(--sky)}
+.sr:hover,.sr.kb{background:var(--sky)}
+.sr.place{color:var(--blue-deep);font-weight:700;background:var(--sky)}
+.sync{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--slate);white-space:nowrap}
+.icon-btn{border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:6px 11px;font-size:12px;font-weight:700;color:var(--blue-deep)}
+.icon-btn:hover{background:var(--sky)}
+.spin{display:inline-block;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- Views ---------- */
+.view{position:relative;min-height:0;overflow:hidden}
+#view-map{display:grid;grid-template-columns:1fr 410px}
+#map-wrap{position:relative;min-width:0}
+#map{position:absolute;inset:0;background:var(--sky)}
+
+.map-tools{position:absolute;top:12px;left:12px;z-index:1000;display:flex;flex-direction:column;gap:8px;align-items:flex-start;max-width:calc(100% - 24px)}
+.tool{border:0;background:#fff;box-shadow:var(--shadow-sm);border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700;color:var(--blue-deep);display:inline-flex;align-items:center;gap:6px}
+.tool:hover{background:var(--sky)}
+.tool .sw{width:26px;height:15px;border-radius:999px;background:var(--sky-2);position:relative;display:inline-block;transition:background .15s}
+.tool .sw::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.tool.on{background:var(--blue-deep);color:#fff}
+.tool.on .sw{background:#7FB3E3}
+.tool.on .sw::after{transform:translateX(11px)}
+.legend .row.click{cursor:pointer;border-radius:6px;padding:1px 3px;margin:0 -3px}
+.legend .row.click:hover{background:var(--sky)}
+.legend .row.off{opacity:.35}
+.legend .row .c{margin-left:auto;padding-left:10px;color:var(--slate);font-variant-numeric:tabular-nums}
+.tool .badge{background:var(--blue);color:#fff;border-radius:999px;padding:1px 7px;font-size:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:600;display:inline-flex;gap:6px;align-items:center;box-shadow:var(--shadow-sm)}
+.chip button{border:0;background:none;padding:0;color:var(--slate);font-weight:800}
+.legend{position:absolute;left:12px;bottom:14px;z-index:1000;background:#fff;border-radius:14px;box-shadow:var(--shadow-sm);padding:8px 12px;font-size:10px;display:flex;flex-direction:column;gap:3px}
+.legend .row{display:flex;align-items:center;gap:6px}
+.legend select{border:0;background:var(--sky);border-radius:8px;font-size:10px;font-weight:700;padding:3px 6px;color:var(--blue-deep);margin-bottom:3px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+.hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:1000;background:var(--ink);color:#fff;font-size:11px;padding:6px 12px;border-radius:999px;opacity:.85;pointer-events:none;white-space:nowrap}
+
+/* ---------- Drawer filtres ---------- */
+.drawer{position:absolute;top:0;left:0;bottom:0;width:320px;max-width:100%;background:#fff;z-index:1500;box-shadow:var(--shadow);transform:translateX(-105%);transition:transform .25s ease;display:flex;flex-direction:column}
+.drawer.open{transform:none}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.drawer-body{flex:1;overflow:auto;padding:16px 18px 40px;display:flex;flex-direction:column;gap:18px}
+.lbl{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--slate);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:10px;cursor:pointer;font-size:12px;font-weight:600;margin-bottom:5px;user-select:none}
+.toggle-row.off{opacity:.38}
+.toggle-row .n{font-size:10px;color:var(--slate)}
+.multi{max-height:200px;overflow:auto;border:1.5px solid var(--line);border-radius:12px;padding:5px}
+.multi label{display:flex;align-items:center;gap:6px;padding:4px 6px;font-size:11px;border-radius:8px;cursor:pointer}
+.multi label:hover{background:var(--sky)}
+.multi input{accent-color:var(--blue)}
+.switch{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600}
+.switch input{accent-color:var(--blue);width:16px;height:16px}
+.link{border:0;background:none;color:var(--blue);font-weight:700;font-size:11px;padding:0}
+
+/* ---------- Panel (droite / bottom sheet) ---------- */
+.panel{display:flex;flex-direction:column;min-height:0;background:#fff;border-left:1px solid var(--line);z-index:1100}
+.sheet-handle{display:none}
+.panel-head{padding:14px 18px 10px;border-bottom:1px solid var(--line)}
+.panel-title{font-family:'Jost',sans-serif;font-size:18px;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.radius{display:flex;gap:4px;margin-top:8px;align-items:center;flex-wrap:wrap}
+.radius button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;color:var(--slate)}
+.radius button.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.ptabs{display:flex;gap:4px;margin-top:10px}
+.ptab{flex:1;border:0;background:var(--sky);border-radius:999px;padding:6px;font-size:12px;font-weight:700;color:var(--slate)}
+.ptab.active{background:var(--blue-deep);color:#fff}
+.panel-body{flex:1;overflow:auto;padding:14px 18px 30px}
+.sec{margin-bottom:20px}
+.sec-t{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--slate);margin-bottom:8px;display:flex;justify-content:space-between;align-items:baseline}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpi{background:var(--sky);border-radius:14px;padding:10px 12px}
+.kpi .k{font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--slate)}
+.kpi .v{font-family:'Jost',sans-serif;font-weight:600;font-size:22px;line-height:1.1;margin-top:3px}
+.kpi .s{font-size:11px;color:var(--slate);margin-top:1px}
+.bar-row{display:grid;grid-template-columns:96px 1fr auto;gap:8px;align-items:center;font-size:11px;margin-bottom:5px}
+.bar{height:7px;background:var(--sky);border-radius:999px;overflow:hidden}
+.bar>span{display:block;height:100%;background:var(--blue-soft);border-radius:999px}
+.item{display:flex;align-items:center;gap:9px;padding:8px 8px;border-radius:12px;cursor:pointer}
+.item:hover{background:var(--sky)}
+.item+.item{border-top:1px solid var(--sky)}
+.it-main{flex:1;min-width:0}
+.it-name{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it-sub{font-size:10.5px;color:var(--slate);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it-right{font-size:11px;font-weight:700;text-align:right;white-space:nowrap}
+.reasons{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.why{font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--sky);color:var(--blue-deep)}
+.why.red{background:#FBE5E5;color:#C03A3A}.why.amber{background:#FCEEDF;color:#C05621}.why.green{background:#E4F3E5;color:#2E7D32}.why.purple{background:#EEE7F8;color:#5E35B1}
+.add{border:1.5px solid var(--line);background:#fff;border-radius:999px;width:26px;height:26px;flex-shrink:0;font-weight:800;color:var(--blue);font-size:14px;line-height:1;padding:0}
+.add.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.pill{display:inline-flex;align-items:center;padding:2px 9px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;border-radius:999px;background:var(--sky);color:var(--slate);white-space:nowrap}
+.stars{color:var(--amber);font-size:11px;letter-spacing:-1px}
+.lvl{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:1px 7px;border-radius:999px;vertical-align:1px;white-space:nowrap}
+.lvl.p{background:#FBE5E5;color:#C03A3A}.lvl.v{background:#FCEEDF;color:#C05621}.lvl.t{background:#EEF2F7;color:#6E85A3}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12px}
+.kv .k{color:var(--slate)}
+.err{border:0;background:#FBE5E5;color:#C03A3A;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:800}
+.eq{display:inline-flex;gap:4px;align-items:center;border-radius:999px;font-size:10.5px;padding:2px 9px;white-space:nowrap;font-weight:600}
+.eqs{display:flex;flex-wrap:wrap;gap:4px}
+.btn{border:0;background:var(--blue);color:#fff;border-radius:999px;padding:9px 14px;font-size:12px;font-weight:800;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:var(--blue-deep)}
+.btn.ghost{background:#fff;color:var(--blue-deep);border:1.5px solid var(--sky-2)}
+.btn.ghost:hover{background:var(--sky)}
+.btn-row{display:flex;flex-wrap:wrap;gap:6px}
+.empty{font-size:12px;color:var(--slate);font-style:italic;padding:8px 0}
+.note{font-size:11px;background:var(--sky);border-radius:10px;padding:8px 10px;color:var(--ink)}
+.note.warn{background:#FCEEDF;color:#8a4413}
+
+/* Fiche */
+.fiche-head{background:var(--blue);color:#fff;border-radius:16px;padding:14px 16px;margin-bottom:14px}
+.fiche-head .name{font-family:'Jost',sans-serif;font-size:19px;font-weight:500;line-height:1.15;margin-top:6px}
+.fiche-head .sub{font-size:11px;color:var(--sky-2);margin-top:3px}
+.back{border:0;background:none;color:var(--blue);font-weight:800;font-size:12px;padding:0;margin-bottom:10px}
+.lines{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.line{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;background:var(--sky);border-radius:8px;padding:5px 8px}
+
+/* Tournée */
+.stop{display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--sky);font-size:12px}
+.stop .n{width:22px;height:22px;border-radius:50%;background:var(--blue-deep);color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.stop .mv{border:0;background:none;color:var(--slate);padding:0 3px;font-size:13px}
+.tour-pin{width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--blue-deep);border:2px solid #fff;box-shadow:0 2px 6px rgba(35,54,78,.35);display:flex;align-items:center;justify-content:center}
+.tour-pin span{transform:rotate(45deg);color:#fff;font-size:10px;font-weight:800}
+.tour-pin.start{background:var(--ink)}
+
+/* ---------- Comptes & Synthèse ---------- */
+.page{height:100%;overflow:auto;background:var(--sky);padding:24px}
+.page-in{max-width:1180px;margin:0 auto}
+.h1{font-family:'Jost',sans-serif;font-weight:300;font-size:34px;margin:0 0 4px}
+.cards4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm)}
+.card.pad{padding:14px 16px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.toolbar .input{width:auto;min-width:180px}
+table.t{width:100%;border-collapse:collapse;font-size:12px}
+table.t th{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--slate);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;cursor:pointer;user-select:none;white-space:nowrap}
+table.t td{padding:10px 12px;border-bottom:1px solid var(--sky);vertical-align:middle}
+table.t tr.click:hover td{background:var(--sky);cursor:pointer}
+.r{text-align:right}
+.pen{display:flex;align-items:center;gap:6px}
+.pen .bar{width:70px}
+tr.sub td{background:#FAFCFE;font-size:11px}
+.loader{position:fixed;inset:0;background:#fff;display:flex;align-items:center;justify-content:center;z-index:9000;flex-direction:column;gap:8px;transition:opacity .3s}
+.loader.done{opacity:0;pointer-events:none}
+
+.leaflet-container{font-family:'Mulish',sans-serif}
+
+/* ---------- Mobile ---------- */
+@media (max-width:820px){
+  .top{flex-wrap:wrap;gap:8px;padding:8px 12px}
+  .brand{font-size:20px}
+  .tab{padding:6px 11px;font-size:12px}
+  .search-wrap{order:3;flex-basis:100%;max-width:none}
+  .sync .when{display:none}
+  #view-map{grid-template-columns:1fr}
+  .panel{position:absolute;left:0;right:0;bottom:0;height:var(--sheet-h);border-left:0;border-radius:18px 18px 0 0;box-shadow:0 -6px 24px rgba(42,92,156,.18);transition:height .25s ease;padding-bottom:env(safe-area-inset-bottom,0)}
+  .sheet-handle{display:block;width:100%;border:0;background:none;padding:8px 0 2px}
+  .sheet-handle span{display:block;margin:0 auto;width:44px;height:5px;border-radius:999px;background:var(--sky-2)}
+  .panel-head{padding:4px 16px 8px}
+  .panel-body{padding:12px 16px 30px}
+  .legend{bottom:calc(var(--sheet-h) + 10px);padding:5px 6px}
+  .legend .row:not(.click){display:none}
+  .map-tools{top:10px;left:10px}
+  .tool{padding:7px 12px}
+  .leaflet-bottom.leaflet-right{bottom:calc(var(--sheet-h) - 6px)}
+  .page{padding:14px}
+  .h1{font-size:26px}
+  .cards4{grid-template-columns:1fr 1fr}
+  table.t.responsive thead{display:none}
+  table.t.responsive tr{display:block;background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:8px;padding:6px 4px}
+  table.t.responsive td{display:flex;justify-content:space-between;gap:10px;border:0;padding:4px 10px}
+  table.t.responsive td::before{content:attr(data-l);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--slate);font-weight:800;flex-shrink:0}
+  table.t.responsive td.first::before{content:none}
+}
+</style>
+</head>
+<body>
+<div id="loader" class="loader">
+  <div class="brand" style="font-size:40px">Atlas</div>
+  <div class="muted small" id="loader-status">Chargement…</div>
+</div>
+
+<div id="app">
+  <header class="top">
+    <div class="brand">Atlas</div>
+    <nav class="tabs">
+      <button class="tab active" data-view="map">Carte</button>
+      <button class="tab" data-view="comptes">Comptes</button>
+      <button class="tab" data-view="synthese">Synthèse</button>
+    </nav>
+    <div class="search-wrap">
+      <input id="search" class="input" type="search" placeholder="Établissement, ville ou adresse…" autocomplete="off">
+      <div id="search-results" class="hidden"></div>
+    </div>
+    <div class="sync">
+      <button class="err hidden" id="data-err" title="Voir le détail">!</button>
+      <span class="when">Données <b id="last-sync">—</b></span>
+      <button class="icon-btn" id="sync-btn" title="Rafraîchir depuis HubSpot et le Google Sheet (≈ 30 s)"><span id="sync-ico">↻</span></button>
+    </div>
+  </header>
+
+  <!-- ================= CARTE ================= -->
+  <div id="view-map" class="view">
+    <div id="map-wrap">
+      <div id="map"></div>
+      <div class="map-tools">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="tool" id="open-filters">⚙ Filtres <span class="badge hidden" id="filter-badge"></span></button>
+          <button class="tool" id="locate-btn" title="Analyser autour de ma position">⌖ Autour de moi</button>
+          <button class="tool" id="contact-toggle" title="Colorer les établissements selon leur dernier contact (HubSpot)" aria-pressed="false"><span class="sw"></span> Dernier contact</button>
+        </div>
+        <div class="chips" id="active-chips"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+
+      <aside class="drawer" id="drawer">
+        <div class="drawer-head">
+          <div class="display" style="font-size:18px">Filtres</div>
+          <div style="display:flex;gap:14px;align-items:center">
+            <button class="link" id="reset-filters">↺ Tout réinitialiser</button>
+            <button class="link" id="close-filters" style="font-size:18px;color:var(--ink)">✕</button>
+          </div>
+        </div>
+        <div class="drawer-body">
+          <div>
+            <div class="lbl">Périmètre <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:600" id="zone-override"></span></div>
+            <select id="f-region" class="input"></select>
+            <select id="f-dept" class="input" style="margin-top:6px"></select>
+          </div>
+          <div>
+            <div class="lbl">Statuts</div>
+            <div id="f-status"></div>
+            <label class="switch" style="margin-top:6px"><span>Afficher les doublons prospects <span class="muted" id="dup-n"></span></span><input type="checkbox" id="f-dups"></label>
+          </div>
+          <div>
+            <div class="lbl">Prospects</div>
+            <select id="f-level" class="input">
+              <option value="">Tous les prospects</option>
+              <option value="v">Priorité + À voir</option>
+              <option value="p">Priorité seulement</option>
+            </select>
+          </div>
+          <div>
+            <div class="lbl">Matériel (clients) <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:600">masque les non-clients</span></div>
+            <select id="f-has" class="input"></select>
+            <select id="f-hasnot" class="input" style="margin-top:6px"></select>
+          </div>
+          <div>
+            <div class="lbl">Dernier contact <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:600">tous statuts</span></div>
+            <select id="f-contact" class="input">
+              <option value="">Peu importe</option>
+              <option value="b:lt1m">Contactés il y a moins d'1 mois</option>
+              <option value="b:1to3">Contactés il y a 1 à 3 mois</option>
+              <option value="b:3to6">Contactés il y a 3 à 6 mois</option>
+              <option value="b:gt6">Contactés il y a plus de 6 mois</option>
+              <option value="lt90">Contactés il y a moins de 3 mois</option>
+              <option value="90">Pas de contact depuis plus de 3 mois (ou jamais)</option>
+              <option value="180">Pas de contact depuis plus de 6 mois (ou jamais)</option>
+              <option value="cnever">Clients jamais contactés</option>
+              <option value="pseen">Prospects déjà rencontrés / appelés</option>
+              <option value="never">Jamais contactés / pas de date (tous statuts)</option>
+            </select>
+            <div class="small muted" style="margin-top:4px" id="contact-note"></div>
+          </div>
+          <div>
+            <div class="lbl">Échéance (clients)</div>
+            <select id="f-ech" class="input">
+              <option value="">Peu importe</option>
+              <option value="60">Renouvellement dans moins de 60 j</option>
+              <option value="120">Renouvellement dans moins de 4 mois</option>
+              <option value="echu">Contrat échu</option>
+            </select>
+          </div>
+          <div>
+            <div class="lbl">Types d'établissements <button class="link" id="types-none">aucun filtre</button></div>
+            <div class="multi" id="f-types"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section class="panel" id="panel">
+      <button class="sheet-handle" id="sheet-handle" aria-label="Agrandir / réduire"><span></span></button>
+      <div class="panel-head">
+        <div class="panel-title"><span id="p-title">—</span><button class="link hidden" id="zone-clear" style="font-size:12px">✕ Quitter la zone</button></div>
+        <div class="small muted" id="p-sub"></div>
+        <div class="radius hidden" id="radius">
+          <span class="small muted" style="margin-right:4px">Rayon</span>
+          <button data-km="10">10 km</button><button data-km="20">20 km</button><button data-km="30">30 km</button><button data-km="50">50 km</button><button data-km="80">80 km</button>
+        </div>
+        <div class="ptabs">
+          <button class="ptab active" data-ptab="resume">Résumé</button>
+          <button class="ptab" data-ptab="liste">Liste <span id="liste-n"></span></button>
+          <button class="ptab" data-ptab="tour">Tournée <span id="tour-n"></span></button>
+        </div>
+      </div>
+      <div class="panel-body" id="panel-body"></div>
+    </section>
+  </div>
+
+  <!-- ================= COMPTES ================= -->
+  <div id="view-comptes" class="view hidden">
+    <div class="page"><div class="page-in">
+      <div class="small" style="color:var(--blue);font-weight:800;letter-spacing:.2em;text-transform:uppercase">Clients · facturation Sellsy</div>
+      <h1 class="h1">Comptes</h1>
+      <div class="small muted">Suit les filtres de la carte (périmètre, types, matériel, zone). CA récurrent = MRR annualisé des contrats en cours.</div>
+      <div class="cards4" id="c-kpis"></div>
+      <div class="toolbar">
+        <input id="c-search" class="input" type="search" placeholder="Rechercher un compte…">
+        <select id="c-sort" class="input">
+          <option value="ca">Trier : CA récurrent</option>
+          <option value="ech">Trier : échéance la plus proche</option>
+          <option value="contact">Trier : contact le plus ancien</option>
+          <option value="nom">Trier : nom</option>
+        </select>
+        <button class="btn ghost" id="c-export">↓ Export CSV</button>
+      </div>
+      <div class="note hidden" id="c-note" style="margin-bottom:10px"></div>
+      <div class="card" style="overflow:hidden"><table class="t responsive" id="c-table"></table></div>
+    </div></div>
+  </div>
+
+  <!-- ================= SYNTHESE ================= -->
+  <div id="view-synthese" class="view hidden">
+    <div class="page"><div class="page-in">
+      <div class="small" style="color:var(--blue);font-weight:800;letter-spacing:.2em;text-transform:uppercase">Toute la base · doublons exclus</div>
+      <h1 class="h1">Synthèse</h1>
+      <div class="cards4" id="s-kpis"></div>
+      <div class="card" style="overflow:hidden;margin-bottom:16px">
+        <div class="pad" style="padding:14px 16px 4px"><div class="sec-t">Par région · clique pour voir les départements</div></div>
+        <table class="t" id="s-regions"></table>
+      </div>
+      <div class="card" style="overflow:hidden">
+        <div style="padding:14px 16px 4px"><div class="sec-t">Par type d'établissement · où je convertis</div></div>
+        <table class="t" id="s-types"></table>
+      </div>
+      <div class="small muted" style="margin:10px 4px 30px">Pénétration = clients ÷ établissements du type. Potentiel indicatif = prospects restants × CA récurrent moyen d'un client de ce type × taux de pénétration.</div>
+    </div></div>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+// ATLAS v5 — outil de prospection personnel
+// Données : application Web Google (Sheet + Sellsy + HubSpot, préparées chaque nuit),
+//           FINESS (places, gestionnaire) en fichier statique ; secours : CSV publiés du Sheet.
+// =====================================================================
+const DATA_URL = new URLSearchParams(location.search).get('data') ||
+  '';   // ← URL de l'application Web Google (…/exec), renseignée après déploiement du script
+const FINESS_URL = 'finess.json';
+const SHEET_CSV_URL  = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS260Q3Tz1OIuDTZOu7ptoADnF26sjp3RLFOPYzylLZ77ZiP1KuA11-OzxNM6ktWkwL1qpylnWb1ZV4/pub?output=csv";
+const SELLSY_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS260Q3Tz1OIuDTZOu7ptoADnF26sjp3RLFOPYzylLZ77ZiP1KuA11-OzxNM6ktWkwL1qpylnWb1ZV4/pub?gid=1212909821&single=true&output=csv";
+const HUBSPOT_REC = id => `https://app-eu1.hubspot.com/contacts/145260249/record/0-2/${id}`;
+const TILE_BASE   = 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a';
+const TILE_LABELS = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png?key=cb1_4v01_1_441ade49065d59e5da99271a';
+
+// Score prospects (validé) : lien client 35 · échange HubSpot 25 · taille 25 · type 15 → 3 niveaux
+const LEVELS = [
+  { key: 'p', label: 'Priorité', min: 50, color: '#E05252', r: 5.5 },
+  { key: 'v', label: 'À voir',   min: 28, color: '#ED8936', r: 4.5 },
+  { key: 't', label: 'Plus tard', min: -1e9, color: '#B9C6D6', r: 3.5 }
+];
+const levelOf = r => LEVELS.find(l => r.prio >= l.min);
+
+const MES_REGIONS = ['BRETAGNE','NORMANDIE','HAUTS-DE-FRANCE','GRAND EST','CENTRE-VAL DE LOIRE','PAYS DE LA LOIRE','BOURGOGNE-FRANCHE-COMTE'];
+const REGION_PROPER = {
+  'BRETAGNE':'Bretagne','NORMANDIE':'Normandie','HAUTS-DE-FRANCE':'Hauts-de-France','GRAND EST':'Grand Est',
+  'CENTRE-VAL DE LOIRE':'Centre-Val de Loire','PAYS DE LA LOIRE':'Pays de la Loire','BOURGOGNE-FRANCHE-COMTE':'Bourgogne-Franche-Comté',
+  'ILE-DE-FRANCE':'Île-de-France','AUVERGNE-RHONE-ALPES':'Auvergne-Rhône-Alpes','NOUVELLE-AQUITAINE':'Nouvelle-Aquitaine',
+  'OCCITANIE':'Occitanie',"PROVENCE-ALPES-COTE D'AZUR":"Provence-Alpes-Côte d'Azur",'CORSE':'Corse'
+};
+
+// Ordre = ordre d'empilement sur la carte (le dernier est dessiné au-dessus)
+const STATUS = {
+  'Prospect':     { label:'Prospects',  color:'#9FB2C8', r:4,   on:true,  pill:'background:#EEF2F7;color:#5b6f88' },
+  'Refusé':       { label:'Refusés',    color:'#E05252', r:5,   on:false, pill:'background:#FBE5E5;color:#C03A3A' },
+  'Résilié':      { label:'Résiliés',   color:'#ED8936', r:6,   on:true,  pill:'background:#FCEEDF;color:#C05621' },
+  'Discussion':   { label:'Discussion', color:'#7E57C2', r:7,   on:true,  pill:'background:#EEE7F8;color:#5E35B1' },
+  'Devis envoyé': { label:'Devis',      color:'#3D7CC9', r:7,   on:true,  pill:'background:#E1EDF9;color:#2A5C9C' },
+  'Client':       { label:'Clients',    color:'#43A047', r:7.5, on:true,  pill:'background:#E4F3E5;color:#2E7D32' }
+};
+const STATUS_ORDER = Object.keys(STATUS);
+const PIPE = ['Devis envoyé','Discussion'];
+
+// Matériel / produits. mode 'actif' = contrat en cours aujourd'hui ; 'achat' = cumul acheté (net des avoirs)
+const EQUIP = [
+  { key:'licence',   label:'Licences',     fam:['Licence'],     mode:'actif', corr:'Licence pro (corrigé)', bg:'#EEEDFE', fg:'#3C3489' },
+  { key:'pack',      label:'Packs audio',  fam:['Pack Audio'],  mode:'actif', corr:'Pack audio (corrigé)',  bg:'#E6F1FB', fg:'#0C447C' },
+  { key:'casque',    label:'Casques',      fam:['Casque'],      mode:'achat',                               bg:'#E8F4EC', fg:'#1E5B34' },
+  { key:'tablette',  label:'Tablettes',    fam:['Tablette'],    mode:'achat',                               bg:'#F3EEE6', fg:'#5F4B2B' },
+  { key:'enceinte',  label:'Enceintes',    fam:['Enceinte'],    mode:'achat',                               bg:'#EEF1F4', fg:'#3E4A57' },
+  { key:'vr',        label:'VR',           fam:['Location VR'], mode:'actif', corr:'VR (corrigé)',          bg:'#E1F5EE', fg:'#085041' },
+  { key:'tmm',       label:'Licences TMM', fam:['Licence TMM'], mode:'actif', corr:'Licence TMM (corrigé)', bg:'#FBEAF0', fg:'#72243E' },
+  { key:'formation', label:'Formation',    fam:['Formation'],   mode:'actif', corr:'Formation (corrigé)',   bg:'#FAEEDA', fg:'#854F0B' }
+];
+const FAM_TO_EQ = {}; EQUIP.forEach(e => e.fam.forEach(f => FAM_TO_EQ[f] = e));
+
+// Tranche de la légende → valeur du filtre « Dernier contact »
+const CONTACT_OF = { lt1m: 'b:lt1m', '1to3': 'b:1to3', '3to6': 'b:3to6', gt6: 'b:gt6', never: 'cnever' };
+const RECENCY = [
+  { key:'lt1m',  label:'< 1 mois',   color:'#43A047', max:30 },
+  { key:'1to3',  label:'1 à 3 mois', color:'#E9B949', max:90 },
+  { key:'3to6',  label:'3 à 6 mois', color:'#ED8936', max:180 },
+  { key:'gt6',   label:'> 6 mois',   color:'#E05252', max:Infinity },
+  { key:'never', label:'Jamais / pas de date', color:'#C3CEDB' }
+];
+
+// ---------------------------------------------------------------- STATE
+const S = {
+  rows: [], byId: new Map(), comptes: {}, horsBase: 0, typeStats: {}, data: null, hs: {}, finess: {},
+  filtered: [],
+  f: defaultFilters(),
+  zone: null,               // { lat, lon, km, label }
+  colorMode: loadLS('atlas5.colorMode', 'statut'),
+  ptab: 'resume', fiche: null, listSort: 'prio', ficheDetail: false,
+  tour: loadLS('atlas5.tour', { ids: [], ret: true }),
+  myPos: null,
+  comptesSort: 'ca', comptesQ: '', openRegions: new Set(),
+  map: null, layer: null, zoneLayer: null, tourLayer: null, hl: null
+};
+function defaultFilters() {
+  const st = {}; STATUS_ORDER.forEach(s => st[s] = STATUS[s].on);
+  return { region: 'MES', dept: '', status: st, dups: false, types: new Set(), has: '', hasnot: '', contact: '', ech: '', level: '' };
+}
+
+// ---------------------------------------------------------------- HELPERS
+const $ = id => document.getElementById(id);
+const esc = s => s == null ? '' : String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => Math.round(n || 0).toLocaleString('fr-FR');
+const eur = n => fmt(n) + ' €';
+const keur = n => { n = n || 0; return Math.abs(n) >= 1e6 ? (n/1e6).toFixed(2).replace('.', ',') + ' M€' : Math.abs(n) >= 1e4 ? fmt(n/1000) + ' k€' : eur(n); };
+const norm = s => (s || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const normRegion = s => (s || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+const isMine = reg => MES_REGIONS.includes(normRegion(reg));
+const regionName = reg => REGION_PROPER[normRegion(reg)] || reg || '—';
+const deptCode = s => { const c = (s || '').toString().trim(); const k = c.includes(' - ') ? c.split(' - ')[0].trim() : c; return k.length === 1 ? '0' + k : k; };
+const today0 = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
+const daysFrom = d => d ? Math.round((d - today0()) / 86400000) : null;
+const fdate = d => d ? d.toLocaleDateString('fr-FR') : '—';
+function loadLS(k, def) { try { const v = JSON.parse(localStorage.getItem(k)); return v || def; } catch (e) { return def; } }
+function saveLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function num(v) {
+  if (v == null) return 0;
+  const n = parseFloat(String(v).replace(/[\s  €]/g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+function pdate(v) {
+  if (!v) return null; const s = String(v).trim(); if (!s) return null;
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  if (/^\d{12,14}$/.test(s)) { const d = new Date(+s); return isNaN(d) ? null : d; }        // timestamp ms (HubSpot)
+  if (/^\d{4,5}(\.\d+)?$/.test(s)) return new Date(Date.UTC(1899, 11, 30) + parseFloat(s) * 86400000); // série Sheets
+  const d = new Date(s); return isNaN(d) ? null : d;
+}
+function hav(a, b, c, d) {
+  const R = 6371, t = Math.PI / 180, x = (c - a) * t, y = (d - b) * t;
+  const h = Math.sin(x/2)**2 + Math.cos(a*t) * Math.cos(c*t) * Math.sin(y/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+async function fetchText(url) {
+  const r = await fetch(url + '&cb=' + Date.now());
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.text();
+}
+const parseCSV = txt => Papa.parse(txt || '', { header: true, skipEmptyLines: true }).data || [];
+
+// ---------------------------------------------------------------- CACHE (IndexedDB, propre à la v5)
+const idb = (() => {
+  let p = null;
+  const open = () => p || (p = new Promise((res, rej) => {
+    const q = indexedDB.open('atlas5', 1);
+    q.onupgradeneeded = () => q.result.createObjectStore('kv');
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  }));
+  const tx = async (mode, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction('kv', mode); const r = fn(t.objectStore('kv')); t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error); }); };
+  return { get: k => tx('readonly', s => s.get(k)).catch(() => null), set: (k, v) => tx('readwrite', s => s.put(v, k)).catch(e => console.warn('Cache', e)) };
+})();
+
+// ---------------------------------------------------------------- BOOT
+// 1) on affiche tout de suite la dernière copie connue (cache de l'appareil, fonctionne hors réseau)
+// 2) on récupère en arrière-plan les données préparées cette nuit, puis on rafraîchit l'écran
+window.addEventListener('DOMContentLoaded', async () => {
+  initMap(); bindUI();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+  const [cache, fin] = await Promise.all([idb.get('data'), idb.get('finess')]);
+  S.finess = (fin && fin.d) || {};
+  if (cache) { ingest(cache); $('loader').classList.add('done'); }
+  if (!fin) loadFiness();
+  await refreshData({ blocking: !cache });
+});
+
+async function loadFiness() {
+  try {
+    const f = await (await fetch(FINESS_URL)).json();
+    S.finess = f.d || {}; idb.set('finess', f);
+    if (S.rows.length) { S.rows.forEach(attachFiness); computePriorities(); applyFilters(); }
+  } catch (e) { console.warn('FINESS indisponible', e); }
+}
+
+async function fetchJSON(url) {
+  const r = await fetch(url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now());
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+// Secours : lecture directe des CSV publiés (sans HubSpot) si l'application Web ne répond pas
+async function fromCSV() {
+  const [main, sellsy] = await Promise.all([fetchText(SHEET_CSV_URL), fetchText(SELLSY_CSV_URL).catch(() => '')]);
+  const tab = txt => { const a = Papa.parse(txt || '', { skipEmptyLines: true }).data || []; return { h: a[0] || [], r: a.slice(1) }; };
+  return { v: 5, t: Date.now(), main: tab(main), sellsy: tab(sellsy), hs: (S.data && S.data.hs) || {}, hsHors: [], erreurs: ['Données lues directement dans le Sheet (application Web Google indisponible) : HubSpot = dernière version connue'], csv: true };
+}
+
+// force = bouton ↻ : l'application Web reconstruit tout (HubSpot compris) avant de répondre
+async function refreshData({ blocking = false, force = false } = {}) {
+  $('sync-ico').classList.add('spin');
+  if (blocking) $('loader-status').textContent = 'Chargement des données…';
+  else $('last-sync').textContent = force ? 'mise à jour HubSpot…' : $('last-sync').textContent + ' · …';
+  try {
+    let data = null;
+    if (DATA_URL) { try { data = await fetchJSON(DATA_URL + (force ? '?refresh=1' : '')); } catch (e) { console.warn('Application Web', e); } }
+    if (!data || !data.main) data = await fromCSV();
+    if (S.data && !force && data.t <= S.data.t && !data.csv) { setSyncLabel(); $('sync-ico').classList.remove('spin'); return; }
+    ingest(data);
+    idb.set('data', data);
+    $('loader').classList.add('done');
+  } catch (e) {
+    console.error(e);
+    if (blocking) $('loader-status').textContent = 'Impossible de charger les données (réseau ?). Réessaie avec ↻.';
+    else setSyncLabel(true);
+  }
+  $('sync-ico').classList.remove('spin');
+}
+
+function setSyncLabel(failed) {
+  const t = S.data && new Date(S.data.t); if (!t) return;
+  const sameDay = t.toDateString() === new Date().toDateString();
+  $('last-sync').textContent = (sameDay ? t.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+    : t.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) + ' ' + t.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))
+    + (failed ? ' · hors ligne' : '');
+  const errs = S.data.erreurs || [];
+  $('data-err').classList.toggle('hidden', !errs.length);
+  $('data-err').title = errs.join('\n');
+}
+
+const asObjects = t => (t && t.r ? t.r : []).map(l => { const o = {}; t.h.forEach((k, i) => o[k] = l[i]); return o; });
+function ingest(data) {
+  S.data = data;
+  S.hs = data.hs || {};
+  S.comptes = aggregateSellsy(asObjects(data.sellsy));
+  S.rows = buildRows(asObjects(data.main));
+  S.byId = new Map(S.rows.map(r => [r.id, r]));
+  S.horsBase = Object.keys(S.comptes).filter(id => !S.byId.has(id)).length;
+  computePriorities();
+  setSyncLabel();
+  buildFilterUI(); applyFilters();
+}
+
+// ---------------------------------------------------------------- DATA : SELLSY
+function isAvoir(l) { return /avoir|avr/i.test(l.typeDoc || '') || l.ca < 0; }
+const signed = (l, v) => isAvoir(l) ? -Math.abs(v || 0) : Math.abs(v || 0);
+const isActive = (l, t) => !!(l.debut && l.fin && l.debut <= t && t <= l.fin);
+
+// Regroupe les lignes par (produit, période). Un avoir n'annule que la facture du même produit et même
+// période ; un groupe qui ne contient que des avoirs (avoir orphelin) est ignoré.
+function groupLines(lines) {
+  const g = {};
+  lines.forEach(l => {
+    const k = (l.ref || l.famille || '?') + '|' + (l.debut ? l.debut.getTime() : '') + '|' + (l.fin ? l.fin.getTime() : '');
+    const x = g[k] || (g[k] = { famille: l.famille, isMrr: false, factured: false, qte: 0, ca: 0, mrrA: 0, mrrM: 0 });
+    if (!isAvoir(l)) x.factured = true;
+    if (l.isMrr) x.isMrr = true;
+    x.qte += signed(l, l.qte); x.ca += signed(l, l.ca); x.mrrA += signed(l, l.mrrA); x.mrrM += signed(l, l.mrrM);
+  });
+  return Object.values(g).filter(x => x.factured);
+}
+
+function aggregateSellsy(data) {
+  const t = today0(), by = {};
+  data.forEach(r => {
+    if ((r['À compter'] || '').trim() !== 'Oui') return;
+    const id = (r['ID Sellsy'] || '').toString().trim(); if (!id) return;
+    const c = by[id] || (by[id] = { id, nom: (r['Client'] || '').trim(), lines: [], caAnnee: 0 });
+    const l = {
+      produit: (r['Produit'] || '').trim(), famille: (r['Famille'] || '').trim(), ref: (r['Réf produit'] || '').trim(),
+      isMrr: (r['MRR ?'] || '').trim() === 'Oui', qte: num(r['Qté']), ca: num(r['CA facturé (€)']),
+      mrrM: num(r['MRR mensuel (€)']), mrrA: num(r['MRR annualisé (€)']),
+      debut: pdate(r['Début service']), fin: pdate(r['Fin service']),
+      doc: (r['N° document'] || '').trim(), typeDoc: (r['Type doc'] || '').trim(), date: pdate(r['Date document'])
+    };
+    c.lines.push(l); c.caAnnee += num(r['CA année en cours (€)']);
+  });
+  Object.values(by).forEach(c => {
+    const active = groupLines(c.lines.filter(l => isActive(l, t)));
+    const all = groupLines(c.lines);
+    c.mrrA = active.filter(g => g.isMrr).reduce((s, g) => s + g.mrrA, 0);
+    c.mrrM = active.filter(g => g.isMrr).reduce((s, g) => s + g.mrrM, 0);
+    c.caActif = active.reduce((s, g) => s + g.ca, 0);
+    c.eq = {};
+    EQUIP.forEach(e => {
+      const src = e.mode === 'actif' ? active : all;
+      const q = src.filter(g => e.fam.includes(g.famille)).reduce((s, g) => s + g.qte, 0);
+      if (Math.round(q) > 0) c.eq[e.key] = Math.round(q);
+    });
+    const mrrLines = c.lines.filter(l => l.isMrr && l.fin && !isAvoir(l));
+    const fut = mrrLines.filter(l => l.fin >= t).map(l => l.fin.getTime());
+    c.echeance = fut.length ? new Date(Math.min(...fut)) : null;
+    const allEnds = mrrLines.map(l => l.fin.getTime());
+    c.derniereFin = allEnds.length ? new Date(Math.max(...allEnds)) : null;
+    const dates = c.lines.map(l => l.date).filter(Boolean).map(d => d.getTime());
+    c.derniereFacture = dates.length ? new Date(Math.max(...dates)) : null;
+  });
+  return by;
+}
+
+// ---------------------------------------------------------------- DATA : ÉTABLISSEMENTS
+function buildRows(data) {
+  const out = [];
+  data.forEach(row => {
+    const lat = parseFloat(String(row['Latitude'] || '').replace(',', '.'));
+    const lon = parseFloat(String(row['Longitude'] || '').replace(',', '.'));
+    if (isNaN(lat) || isNaN(lon)) return;
+    let statut = (row['Statut'] || 'Prospect').trim() || 'Prospect';
+    if (statut === 'En discussion') statut = 'Discussion';
+    if (!STATUS[statut]) statut = 'Prospect';
+    const id = (row['ID'] || '').toString().trim();
+    // Dernier contact = le plus récent entre le Sheet, l'ancienne colonne HubSpot et HubSpot (en direct)
+    const hs = S.hs[id] || null;
+    const contact = [pdate(row['Dernier contact']), pdate(row['Dernier appel/ réu auto de HS']), hs && hs.l ? new Date(hs.l) : null]
+      .filter(Boolean).sort((a, b) => b - a)[0] || null;
+    const r = {
+      id: id || ('row' + out.length),
+      nom: (row['Nom Établissement'] || row['Nom'] || 'Sans nom').trim(),
+      statut, type: (row['Type'] || 'Autre').trim() || 'Autre',
+      adresse: (row['Adresse Complète'] || '').trim(), ville: (row['Ville'] || '').trim(), cp: (row['CP'] || '').toString().trim(),
+      dept: (row['Département'] || '').trim(), region: (row['Région'] || '').trim(),
+      lat, lon, contact, note: (row['Visite prévue'] || '').trim(),
+      isDup: statut === 'Prospect' && !!(row['Vérification Doublon'] || '').trim(),
+      dupInfo: (row['Détails Doublons'] || '').trim(),
+      caSheet: num(row['CA']), corrDate: (row['Vérifié le'] || '').toString().trim(),
+      hs
+    };
+    attachFiness(r);
+    r.deptCode = deptCode(r.dept);
+    r.regionKey = normRegion(r.region);
+    r.compte = S.comptes[r.id] || null;
+
+    // Matériel : calcul Sellsy, ou correction manuelle (colonnes « (corrigé) ») si une case est remplie
+    r.eq = Object.assign({}, r.compte ? r.compte.eq : {});
+    const corrCols = EQUIP.filter(e => e.corr);
+    if (corrCols.some(e => String(row[e.corr] || '').trim() !== '')) {
+      r.corrige = true;
+      corrCols.forEach(e => { const q = Math.round(num(row[e.corr])); if (q > 0) r.eq[e.key] = q; else delete r.eq[e.key]; });
+    }
+
+    // CA récurrent = MRR annualisé Sellsy des contrats en cours ; à défaut, colonne CA du Sheet
+    if (r.compte && r.compte.mrrA > 0) { r.ca = r.compte.mrrA; r.caSrc = 'Sellsy'; }
+    else { r.ca = r.caSheet; r.caSrc = r.caSheet ? 'Sheet' : ''; }
+    r.ech = r.compte ? r.compte.echeance : null;
+    r.echu = r.compte && !r.compte.echeance && r.compte.derniereFin ? r.compte.derniereFin : null;
+    out.push(r);
+  });
+  return out;
+}
+
+// FINESS : places installées (médico-social), entité juridique gestionnaire, n° FINESS
+function attachFiness(r) {
+  const f = S.finess && S.finess[r.id];
+  r.places = f ? f[0] : 0; r.ej = f ? f[1] : ''; r.finessNo = f ? f[4] : '';
+}
+
+const recency = r => {
+  if (!r.contact) return RECENCY[4];
+  const d = -daysFrom(r.contact);
+  return RECENCY.find(b => b.max !== undefined && d <= b.max) || RECENCY[3];
+};
+
+// ---------------------------------------------------------------- PRIORISATION
+// Prospects : score basé sur MON historique (taux de conversion du type), la présence d'un client
+// de référence à proximité, et le statut « ancien client ».
+// Clients : renouvellement proche, contact ancien, potentiel d'upsell.
+function computePriorities() {
+  const ts = {};
+  S.rows.forEach(r => {
+    if (r.isDup) return;
+    const t = ts[r.type] || (ts[r.type] = { n: 0, clients: 0, ca: 0, prospects: 0 });
+    t.n++;
+    if (r.statut === 'Client') { t.clients++; t.ca += r.ca; }
+    if (r.statut === 'Prospect') t.prospects++;
+  });
+  Object.values(ts).forEach(t => { t.rate = t.n ? t.clients / t.n : 0; t.caMoy = t.clients ? t.ca / t.clients : 0; });
+  S.typeStats = ts;
+
+  // grille simple pour chercher les clients proches rapidement
+  const clients = S.rows.filter(r => r.statut === 'Client');
+  const cell = r => Math.floor(r.lat / 0.25) + ':' + Math.floor(r.lon / 0.35);
+  const grid = {};
+  clients.forEach(c => { (grid[cell(c)] = grid[cell(c)] || []).push(c); });
+  const near = r => {
+    const ci = Math.floor(r.lat / 0.25), cj = Math.floor(r.lon / 0.35), res = [];
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) (grid[(ci+i) + ':' + (cj+j)] || []).forEach(c => res.push(c));
+    return res;
+  };
+
+  // Clients regroupés par gestionnaire FINESS (même entité juridique = même groupe / même direction)
+  const byEJ = {};
+  clients.forEach(c => { if (c.ej) (byEJ[c.ej] = byEJ[c.ej] || []).push(c); });
+  const BIG = ['CHU', 'CHR', 'Centre de Lutte Contre Cancer'], MID = ['CH', 'CHI', 'CH Spécialisé Maladies Mentales'];
+  const moisDepuis = d => Math.round(-daysFrom(d) / 30.4);
+
+  S.rows.forEach(r => {
+    r.prio = 0; r.why = []; r.ref = null; r.pts = null;
+    if (r.statut === 'Prospect' || r.statut === 'Résilié') {
+      const p = { lien: 0, echange: 0, taille: 0, type: 0 };
+      // 1) Lien avec un client (35) : même gestionnaire, sinon client à moins de 10 km
+      const grp = r.ej ? (byEJ[r.ej] || []).filter(c => c.id !== r.id) : [];
+      if (grp.length) {
+        const c = grp.map(c => ({ c, d: hav(r.lat, r.lon, c.lat, c.lon) })).sort((a, b) => a.d - b.d)[0].c;
+        p.lien = 35; r.ref = c.id;
+        r.why.push({ t: `Même gestionnaire que ${c.nom}${grp.length > 1 ? ` (+${grp.length - 1})` : ''}`, c: 'green' });
+      } else {
+        let best = null;
+        near(r).forEach(c => { if (c.id === r.id) return; const d = hav(r.lat, r.lon, c.lat, c.lon); if (d <= 10 && (!best || d < best.d)) best = { c, d }; });
+        if (best) { p.lien = 17; r.ref = best.c.id; r.why.push({ t: `Client à ${Math.max(1, Math.round(best.d))} km : ${best.c.nom}`, c: '' }); }
+      }
+      // 2) Échange déjà eu (25) — HubSpot
+      const h = r.hs;
+      const m = r.contact ? moisDepuis(r.contact) : null;
+      if (h && h.d) { p.echange = 25; r.why.push({ t: `Affaire ouverte dans HubSpot${h.v ? ' · ' + keur(h.v) : ''}`, c: 'purple' }); }
+      else if (m != null && m <= 6) { p.echange = 25; r.why.push({ t: `Échange le ${fdate(r.contact)}`, c: 'purple' }); }
+      else if (m != null && m <= 18) { p.echange = 16; r.why.push({ t: `Dernier échange il y a ${m} mois`, c: 'purple' }); }
+      else if (h && h.c) { p.echange = 6; r.why.push({ t: `${h.c} contact${h.c > 1 ? 's' : ''} dans HubSpot`, c: '' }); }
+      // 3) Taille (25) — places FINESS ; hôpitaux sans places : estimation par catégorie (sans raison affichée)
+      if (r.places) {
+        p.taille = r.places >= 120 ? 25 : r.places >= 80 ? 18 : r.places >= 50 ? 10 : 4;
+        r.why.push({ t: `${r.places} places`, c: r.places >= 80 ? 'green' : '' });
+      } else p.taille = BIG.includes(r.type) ? 18 : MID.includes(r.type) ? 12 : /Clinique|Maison de Santé/.test(r.type) ? 8 : 0;
+      // 4) Type (15) — taux de conversion de ton portefeuille, lissé
+      const t = ts[r.type] || { clients: 0, n: 1 };
+      p.type = Math.min(15, Math.round((t.clients + 1) / (t.n + 15) * 150));
+      if (t.clients >= 2 && t.clients / t.n >= 0.04) r.why.push({ t: `${Math.round(100 * t.clients / t.n)} % des ${r.type} sont clients`, c: 'green' });
+      r.pts = p;
+      r.prio = p.lien + p.echange + p.taille + p.type;
+      if (r.statut === 'Résilié') { r.prio += 10; r.why.unshift({ t: 'Ancien client', c: 'amber' }); }
+      if (r.isDup) { r.prio -= 30; r.why.push({ t: 'Doublon présumé', c: 'red' }); }
+    } else if (r.statut === 'Client') {
+      const h = r.hs;
+      if (h && h.ls > 0 && h.lu / h.ls < 0.5) { r.prio += 30; r.why.push({ t: `Licences utilisées : ${h.lu} / ${h.ls}`, c: 'red' }); }
+      if (h && h.na && h.na >= Date.now() - 864e5) r.why.push({ t: `Prochaine action le ${fdate(new Date(h.na))}`, c: 'green' });
+      const de = r.ech ? daysFrom(r.ech) : null;
+      if (de != null && de <= 60) { r.prio += 50; r.why.push({ t: `Renouvellement dans ${de} j`, c: 'red' }); }
+      else if (de != null && de <= 120) { r.prio += 35; r.why.push({ t: `Renouvellement dans ${de} j`, c: 'amber' }); }
+      else if (r.echu) { r.prio += 40; r.why.push({ t: `Contrat échu le ${fdate(r.echu)}`, c: 'red' }); }
+      const since = r.contact ? -daysFrom(r.contact) : null;
+      if (since == null) { r.prio += 20; r.why.push({ t: 'Jamais contacté', c: 'amber' }); }
+      else if (since > 180) { r.prio += 25; r.why.push({ t: `Pas de contact depuis ${Math.round(since / 30)} mois`, c: 'amber' }); }
+      if (r.eq.licence && !r.eq.pack) { r.prio += 10; r.why.push({ t: 'Upsell : pas de pack audio', c: 'purple' }); }
+      if (r.eq.licence && !r.eq.formation) { r.prio += 5; r.why.push({ t: 'Pas de formation en cours', c: 'purple' }); }
+    } else if (PIPE.includes(r.statut)) {
+      r.prio = 45;
+      const since = r.contact ? -daysFrom(r.contact) : null;
+      r.why.push({ t: r.statut === 'Devis envoyé' ? 'Devis à relancer' : 'Discussion en cours', c: 'purple' });
+      if (since != null && since > 30) r.why.push({ t: `Dernier contact il y a ${since} j`, c: 'amber' });
+    }
+  });
+}
+const isPros = r => r.statut === 'Prospect' || r.statut === 'Résilié';
+const lvlBadge = r => { const l = levelOf(r); return `<span class="lvl ${l.key}">${l.key === 't' ? '○' : '●'} ${l.label}</span>`; };
+
+// ---------------------------------------------------------------- FILTRES
+// skip : nom de filtre à ignorer (pour calculer les compteurs de ce filtre)
+function match(r, skip) {
+  const f = S.f;
+  if (skip !== 'status' && !f.status[r.statut]) return false;
+  if (r.isDup && !f.dups) return false;
+  if (S.zone) {
+    if (hav(S.zone.lat, S.zone.lon, r.lat, r.lon) > S.zone.km) return false;
+  } else {
+    if (f.region === 'MES' && !isMine(r.region)) return false;
+    if (f.region !== 'MES' && f.region !== 'ALL' && r.regionKey !== f.region) return false;
+    if (f.dept && r.deptCode !== f.dept) return false;
+  }
+  if (skip !== 'types' && f.types.size && !f.types.has(r.type)) return false;
+  if (f.level && skip !== 'level' && r.statut === 'Prospect' && r.prio < LEVELS.find(l => l.key === f.level).min) return false;
+  // Dernier contact : s'applique à tous les statuts (combinable avec les statuts affichés)
+  if (f.contact && skip !== 'contact') {
+    const since = r.contact ? -daysFrom(r.contact) : null;
+    if (f.contact.startsWith('b:')) { if (recency(r).key !== f.contact.slice(2)) return false; }
+    else if (f.contact === 'cnever') { if (r.statut !== 'Client' || since != null) return false; }
+    else if (f.contact === 'pseen') { if (!isPros(r) || since == null) return false; }
+    else if (f.contact === 'never') { if (since != null) return false; }
+    else if (f.contact.startsWith('lt')) { if (since == null || since > +f.contact.slice(2)) return false; }
+    else if (since != null && since <= +f.contact) return false;
+  }
+  // Matériel et échéance : n'ont de sens que pour les clients
+  if (f.has || f.hasnot || f.ech) {
+    if (r.statut !== 'Client') return false;
+    if (f.has && !r.eq[f.has]) return false;
+    if (f.hasnot && r.eq[f.hasnot]) return false;
+    if (f.ech === 'echu' && !r.echu) return false;
+    if (f.ech && f.ech !== 'echu' && !(r.ech && daysFrom(r.ech) <= +f.ech)) return false;
+  }
+  return true;
+}
+
+function applyFilters(opts = {}) {
+  S.filtered = S.rows.filter(r => match(r));
+  S.rows.forEach(r => r._d = null);
+  if (S.zone) S.filtered.forEach(r => r._d = hav(S.zone.lat, S.zone.lon, r.lat, r.lon));
+  renderMarkers();
+  refreshFilterUI();
+  renderPanel();
+  if (!$('view-comptes').classList.contains('hidden')) renderComptes();
+  if (opts.fit) fitToFiltered();
+}
+
+function buildFilterUI() {
+  // Régions présentes dans la base
+  const regs = [...new Set(S.rows.map(r => r.regionKey))].filter(Boolean).sort();
+  const others = regs.filter(k => !MES_REGIONS.includes(k));
+  $('f-region').innerHTML = `<option value="MES">Mes 7 régions</option>` +
+    MES_REGIONS.filter(k => regs.includes(k)).map(k => `<option value="${esc(k)}">${esc(REGION_PROPER[k] || k)}</option>`).join('') +
+    (others.length ? `<option value="ALL">France entière</option>` + others.map(k => `<option value="${esc(k)}">${esc(REGION_PROPER[k] || k)} (hors périmètre)</option>`).join('') : '');
+  const eqOpts = EQUIP.map(e => `<option value="${e.key}">${esc(e.label)}</option>`).join('');
+  $('f-has').innerHTML = `<option value="">Équipés de… (tous)</option>` + eqOpts;
+  $('f-hasnot').innerHTML = `<option value="">Sans… (tous)</option>` + eqOpts;
+  buildDeptOptions();
+}
+function buildDeptOptions() {
+  const f = S.f, set = new Map();
+  S.rows.forEach(r => {
+    if (f.region === 'MES' && !isMine(r.region)) return;
+    if (f.region !== 'MES' && f.region !== 'ALL' && r.regionKey !== f.region) return;
+    if (r.deptCode) set.set(r.deptCode, r.dept);
+  });
+  if (f.dept && !set.has(f.dept)) f.dept = '';
+  $('f-dept').innerHTML = `<option value="">Tous les départements</option>` +
+    [...set.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([c, n]) => `<option value="${esc(c)}" ${c === f.dept ? 'selected' : ''}>${esc(n)}</option>`).join('');
+}
+
+function refreshFilterUI() {
+  const f = S.f;
+  // statuts avec compteurs
+  const sc = {}; S.rows.forEach(r => { if (match(r, 'status')) sc[r.statut] = (sc[r.statut] || 0) + 1; });
+  $('f-status').innerHTML = [...STATUS_ORDER].reverse().map(s => `
+    <div class="toggle-row ${f.status[s] ? '' : 'off'}" data-status="${esc(s)}">
+      <span style="display:flex;gap:8px;align-items:center"><span class="dot" style="background:${STATUS[s].color}"></span>${STATUS[s].label}</span>
+      <span class="n num">${sc[s] || 0}</span>
+    </div>`).join('');
+  $('dup-n').textContent = '(' + S.rows.filter(r => r.isDup).length + ')';
+  // Couverture des dates de contact, par statut affiché (pour ne pas prendre un filtre vide pour un bug)
+  const cov = STATUS_ORDER.filter(s => f.status[s]).map(s => {
+    const all = S.rows.filter(r => r.statut === s && !r.isDup);
+    return { s, n: all.length, d: all.filter(r => r.contact).length };
+  }).filter(x => x.n);
+  $('contact-note').textContent = 'Dates connues : ' + cov.reverse().map(x => `${STATUS[x.s].label.toLowerCase()} ${x.d}/${x.n}`).join(' · ');
+  // types avec compteurs
+  const tc = {}; S.rows.forEach(r => { if (match(r, 'types')) tc[r.type] = (tc[r.type] || 0) + 1; });
+  f.types.forEach(t => { if (!(t in tc)) tc[t] = 0; });
+  $('f-types').innerHTML = Object.keys(tc).sort((a, b) => tc[b] - tc[a]).map(t => `
+    <label><input type="checkbox" value="${esc(t)}" ${f.types.has(t) ? 'checked' : ''}><span style="flex:1">${esc(t)}</span><span class="muted num">${tc[t]}</span></label>`).join('')
+    || '<div class="empty">Aucun type</div>';
+  $('f-region').value = f.region; $('f-has').value = f.has; $('f-hasnot').value = f.hasnot;
+  $('f-contact').value = f.contact; $('f-ech').value = f.ech; $('f-dups').checked = f.dups; $('f-level').value = f.level;
+  $('f-region').disabled = $('f-dept').disabled = !!S.zone;
+  $('zone-override').textContent = S.zone ? 'remplacé par la zone' : '';
+
+  // puces de filtres actifs sur la carte
+  const chips = [];
+  if (!S.zone && f.region !== 'MES') chips.push(['region', f.region === 'ALL' ? 'France entière' : regionName(f.region)]);
+  if (!S.zone && f.dept) chips.push(['dept', f.dept]);
+  if (f.types.size) chips.push(['types', f.types.size === 1 ? [...f.types][0] : f.types.size + ' types']);
+  if (f.has) chips.push(['has', 'Avec ' + EQUIP.find(e => e.key === f.has).label.toLowerCase()]);
+  if (f.hasnot) chips.push(['hasnot', 'Sans ' + EQUIP.find(e => e.key === f.hasnot).label.toLowerCase()]);
+  if (f.level) chips.push(['level', $('f-level').selectedOptions[0].textContent]);
+  if (f.contact) chips.push(['contact', $('f-contact').selectedOptions[0].textContent]);
+  if (f.ech) chips.push(['ech', $('f-ech').selectedOptions[0].textContent]);
+  const hiddenSt = STATUS_ORDER.filter(s => STATUS[s].on && !f.status[s]);
+  const shownSt = STATUS_ORDER.filter(s => !STATUS[s].on && f.status[s]);
+  if (hiddenSt.length) chips.push(['status', 'Masqués : ' + hiddenSt.map(s => STATUS[s].label.toLowerCase()).join(', ')]);
+  if (shownSt.length) chips.push(['status', 'Affichés : ' + shownSt.map(s => STATUS[s].label.toLowerCase()).join(', ')]);
+  if (f.dups) chips.push(['dups', 'Doublons affichés']);
+  $('active-chips').innerHTML = chips.map(([k, l]) => `<span class="chip">${esc(l)} <button data-clear="${k}" title="Retirer">✕</button></span>`).join('');
+  $('filter-badge').textContent = chips.length; $('filter-badge').classList.toggle('hidden', !chips.length);
+}
+
+function clearFilter(k) {
+  const f = S.f, d = defaultFilters();
+  if (k === 'region') { f.region = 'MES'; buildDeptOptions(); }
+  else if (k === 'types') f.types = new Set();
+  else if (k === 'status') f.status = d.status;
+  else if (k === 'dept') { f.dept = ''; buildDeptOptions(); }
+  else f[k] = d[k];
+  applyFilters();
+}
+
+// ---------------------------------------------------------------- CARTE
+function initMap() {
+  S.map = L.map('map', { zoomControl: false, zoomSnap: 0.25, zoomDelta: 0.5 }).setView([47.8, 2.3], 6);
+  L.tileLayer(TILE_BASE, { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }).addTo(S.map);
+  L.tileLayer(TILE_LABELS, { pane: 'shadowPane', maxZoom: 19 }).addTo(S.map);
+  L.control.zoom({ position: 'bottomright' }).addTo(S.map);
+  // UN SEUL canvas pour tous les tracés (points, zone, surbrillance, tournée) : un second canvas
+  // se poserait par-dessus et intercepterait les clics sur les points.
+  S.renderer = L.canvas({ padding: 0.4, tolerance: 6 });
+  S.zoneLayer = L.layerGroup().addTo(S.map);
+  S.layer = L.layerGroup().addTo(S.map);
+  S.tourLayer = L.layerGroup().addTo(S.map);
+  S.map.on('contextmenu', e => setZone(e.latlng.lat, e.latlng.lng, 'Point choisi sur la carte'));
+}
+
+function markerColor(r) {
+  if (S.colorMode === 'contact') {
+    // Clients : couleur selon la récence (jamais contacté = bleu nuit, bien visible)
+    if (r.statut === 'Client') return r.contact ? recency(r).color : '#23364E';
+    // Autres statuts : couleur seulement s'ils ont une date, sinon gris discret
+    return r.contact ? recency(r).color : '#DCE3EC';
+  }
+  // Par défaut : clients / pipeline par statut, prospects par niveau de priorité
+  if (r.statut === 'Prospect') return levelOf(r).color;
+  return STATUS[r.statut].color;
+}
+const markerRadius = r => r.statut === 'Prospect' && S.colorMode !== 'contact' ? levelOf(r).r : STATUS[r.statut].r;
+
+function renderMarkers() {
+  S.layer.clearLayers();
+  // ordre d'empilement : statut, puis (prospects) niveau de priorité — les priorités dessinées au-dessus
+  const order = r => STATUS_ORDER.indexOf(r.statut) * 1000 + (r.statut === 'Prospect' ? r.prio : 0);
+  const list = [...S.filtered].sort((a, b) => order(a) - order(b));
+  list.forEach(r => {
+    const m = L.circleMarker([r.lat, r.lon], {
+      renderer: S.renderer, radius: markerRadius(r),
+      fillColor: markerColor(r), fillOpacity: r.statut === 'Prospect' ? 0.75 : 0.95,
+      color: r.isDup ? '#ED8936' : '#fff', weight: r.statut === 'Prospect' ? 1 : 1.6
+    });
+    // e.containerPoint est « aimanté » par Leaflet sur le point qu'il a choisi : on relit la vraie position du clic
+    m.on('click', e => openFiche(nearestAt(e.originalEvent ? S.map.mouseEventToContainerPoint(e.originalEvent) : e.containerPoint, r).id));
+    S.layer.addLayer(m);
+  });
+  renderLegend();
+  highlight();
+}
+
+// Leaflet renvoie le DERNIER point dessiné sous le clic, pas le plus proche : quand des points se
+// chevauchent, on ouvrait le voisin. On choisit donc le point affiché le plus proche du clic
+// (léger avantage aux clients / pipeline, plus gros, sur les prospects).
+function nearestAt(pt, fallback) {
+  let best = fallback, bd = Infinity;
+  S.filtered.forEach(r => {
+    const p = S.map.latLngToContainerPoint([r.lat, r.lon]);
+    const d = Math.hypot(p.x - pt.x, p.y - pt.y) - (r.statut === 'Prospect' ? 0 : 1.5);
+    if (d < bd) { bd = d; best = r; }
+  });
+  return best;
+}
+
+function renderLegend() {
+  let items;
+  $('contact-toggle').classList.toggle('on', S.colorMode === 'contact');
+  $('contact-toggle').setAttribute('aria-pressed', S.colorMode === 'contact');
+  $('legend').classList.toggle('contact', S.colorMode === 'contact');
+  const head = t => `<div style="font-weight:800;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--slate);margin-bottom:2px">${t}</div>`;
+  if (S.colorMode === 'contact') {
+    // Légende = tranches de récence des établissements affichés (tous statuts), avec compteurs ; un clic filtre la tranche
+    const shown = S.rows.filter(r => match(r, 'contact'));
+    const n = k => shown.filter(r => (r.contact ? recency(r).key : 'never') === k).length;
+    $('legend').innerHTML = head('Dernier contact') +
+      RECENCY.map(b => {
+        const dot = b.key === 'never'
+          ? `<span class="dot" style="background:#23364E" title="Clients"></span><span class="dot" style="background:#DCE3EC;margin-left:-4px" title="Autres"></span>`
+          : `<span class="dot" style="background:${b.color}"></span>`;
+        const on = !S.f.contact || CONTACT_OF[b.key] === S.f.contact;
+        return `<div class="row click ${on ? '' : 'off'}" data-recency="${b.key}" title="Afficher seulement cette tranche">${dot}${b.key === 'never' ? 'Jamais (clients en bleu nuit)' : esc(b.label)}<span class="c">${n(b.key)}</span></div>`;
+      }).join('') +
+      `<button class="link" id="contact-off" style="margin-top:4px;font-size:10px;text-align:left">✕ Revenir aux couleurs normales</button>`;
+    return;
+  }
+  // Légende normale : statuts affichés ; les prospects sont détaillés par niveau (clic = filtrer)
+  const sts = [...STATUS_ORDER].reverse().filter(s => S.f.status[s] && s !== 'Prospect');
+  const pros = S.f.status['Prospect'] ? S.rows.filter(r => r.statut === 'Prospect' && match(r, 'level')) : [];
+  $('legend').innerHTML = sts.map(s => `<div class="row"><span class="dot" style="background:${STATUS[s].color}"></span>${esc(STATUS[s].label)}</div>`).join('') +
+    (S.f.status['Prospect'] ? head('Prospects') + LEVELS.map(l => {
+      const on = !S.f.level || LEVELS.findIndex(x => x.key === l.key) <= LEVELS.findIndex(x => x.key === S.f.level);
+      return `<div class="row click ${on ? '' : 'off'}" data-level="${l.key}" title="Afficher à partir de ce niveau"><span class="dot" style="background:${l.color}"></span>${l.label}<span class="c">${pros.filter(r => levelOf(r) === l).length}</span></div>`;
+    }).join('') : '');
+}
+
+function highlight() {
+  if (S.hl) { S.map.removeLayer(S.hl); S.hl = null; }
+  const r = S.fiche && S.byId.get(S.fiche);
+  if (!r) return;
+  S.hl = L.circleMarker([r.lat, r.lon], { renderer: S.renderer, radius: 13, color: '#2A5C9C', weight: 3, fill: false, interactive: false }).addTo(S.map);
+}
+
+function fitToFiltered() {
+  if (!S.filtered.length) return;
+  const b = L.latLngBounds(S.filtered.map(r => [r.lat, r.lon]));
+  S.map.fitBounds(b, { padding: [40, 40], maxZoom: 12 });
+}
+
+// ---------------------------------------------------------------- ZONE
+function setZone(lat, lon, label, km) {
+  S.zone = { lat, lon, label, km: km || (S.zone && S.zone.km) || 20 };
+  S.fiche = null; S.ptab = 'resume';
+  drawZone();
+  applyFilters();
+  setSheet('half');
+  fitZone();
+}
+// Cadre la carte sur la zone, en tenant compte du panneau du bas sur mobile
+function fitZone() {
+  if (!S.zone) return;
+  S.map.invalidateSize();
+  S.map.fitBounds(L.latLng(S.zone.lat, S.zone.lon).toBounds(S.zone.km * 2000),
+    { paddingTopLeft: [16, 16], paddingBottomRight: [16, 16 + sheetPx()] });
+}
+// Sur mobile, s'assure qu'un point n'est pas caché sous le panneau du bas
+function ensureVisible(lat, lon) {
+  const size = S.map.getSize(), p = S.map.latLngToContainerPoint([lat, lon]);
+  const bottom = size.y - sheetPx() - 30;
+  if (p.y > bottom || p.y < 60 || p.x < 20 || p.x > size.x - 20)
+    S.map.panBy([p.x - size.x / 2, p.y - Math.max(80, bottom / 2)], { animate: true });
+}
+function drawZone() {
+  S.zoneLayer.clearLayers();
+  if (!S.zone) return;
+  L.circle([S.zone.lat, S.zone.lon], { renderer: S.renderer, radius: S.zone.km * 1000, color: '#3D7CC9', weight: 1.5, dashArray: '5 5', fillColor: '#3D7CC9', fillOpacity: 0.05, interactive: false }).addTo(S.zoneLayer);
+  L.circleMarker([S.zone.lat, S.zone.lon], { renderer: S.renderer, radius: 6, color: '#fff', weight: 2.5, fillColor: '#23364E', fillOpacity: 1, interactive: false }).addTo(S.zoneLayer);
+}
+function clearZone() { S.zone = null; drawZone(); applyFilters({ fit: true }); }
+
+// ---------------------------------------------------------------- PANEL
+function panelHeader() {
+  const z = S.zone, f = S.f;
+  if (z) {
+    $('p-title').textContent = '📍 ' + z.label;
+    $('p-sub').textContent = `Rayon de ${z.km} km · ${S.filtered.length} établissements affichés`;
+  } else {
+    const scope = f.dept ? (S.rows.find(r => r.deptCode === f.dept) || {}).dept || f.dept
+      : f.region === 'MES' ? 'Mes 7 régions' : f.region === 'ALL' ? 'France entière' : regionName(f.region);
+    $('p-title').textContent = scope;
+    $('p-sub').textContent = `${S.filtered.length} établissements · pour analyser une zone : cherche une ville, ou clic droit / appui long sur la carte`;
+  }
+  $('zone-clear').classList.toggle('hidden', !z);
+  $('radius').classList.toggle('hidden', !z);
+  document.querySelectorAll('#radius button').forEach(b => b.classList.toggle('on', z && +b.dataset.km === z.km));
+  document.querySelectorAll('.ptab').forEach(b => b.classList.toggle('active', b.dataset.ptab === S.ptab && !S.fiche));
+  $('liste-n').textContent = S.filtered.length ? `(${S.filtered.length})` : '';
+  $('tour-n').textContent = S.tour.ids.length ? `(${S.tour.ids.length})` : '';
+}
+
+function renderPanel() {
+  if (!S.rows.length) return;
+  panelHeader();
+  const body = $('panel-body');
+  if (S.fiche && S.byId.get(S.fiche)) body.innerHTML = ficheHTML(S.byId.get(S.fiche));
+  else if (S.ptab === 'liste') body.innerHTML = listeHTML();
+  else if (S.ptab === 'tour') body.innerHTML = tourHTML();
+  else body.innerHTML = resumeHTML();
+  renderTourLayer();
+}
+
+function itemHTML(r, opts = {}) {
+  const inTour = S.tour.ids.includes(r.id);
+  const d = r._d != null ? ` · ${r._d.toFixed(1).replace('.', ',')} km` : '';
+  const right = opts.right != null ? opts.right : (r.ca > 0 ? keur(r.ca) : '');
+  const why = opts.why ? `<div class="reasons">${r.why.slice(0, 3).map(w => `<span class="why ${w.c}">${esc(w.t)}</span>`).join('')}</div>` : '';
+  return `<div class="item" data-open="${esc(r.id)}">
+    <span class="dot" style="background:${STATUS[r.statut].color}"></span>
+    <div class="it-main"><div class="it-name">${opts.stars && isPros(r) ? lvlBadge(r) + ' ' : ''}${esc(r.nom)}</div>
+      <div class="it-sub">${esc(r.type)} · ${esc(r.ville)}${d}</div>${why}</div>
+    <div class="it-right num">${right}</div>
+    <button class="add ${inTour ? 'on' : ''}" data-tour="${esc(r.id)}" title="${inTour ? 'Retirer de' : 'Ajouter à'} la tournée">${inTour ? '✓' : '+'}</button>
+  </div>`;
+}
+
+function eqChips(eq, empty) {
+  const list = EQUIP.filter(e => eq[e.key]);
+  if (!list.length) return empty ? `<span class="small muted">${empty}</span>` : '';
+  return `<div class="eqs">${list.map(e => `<span class="eq" style="background:${e.bg};color:${e.fg}">${esc(e.label)} <b>×${eq[e.key]}</b></span>`).join('')}</div>`;
+}
+
+const byPrio = (a, b) => (b.prio - (b._d || 0) * 0.4) - (a.prio - (a._d || 0) * 0.4);
+
+function resumeHTML() {
+  const L_ = S.filtered;
+  const cl = L_.filter(r => r.statut === 'Client');
+  const pipe = L_.filter(r => PIPE.includes(r.statut));
+  const pros = L_.filter(r => r.statut === 'Prospect');
+  const res = L_.filter(r => r.statut === 'Résilié');
+  const caCl = cl.reduce((s, r) => s + r.ca, 0), caPipe = pipe.reduce((s, r) => s + r.caSheet, 0);
+  const soon = cl.filter(r => r.ech && daysFrom(r.ech) <= 120).length;
+
+  let h = `<div class="sec"><div class="kpis">
+    <div class="kpi"><div class="k">Clients</div><div class="v num" style="color:var(--green)">${cl.length}</div><div class="s num">${keur(caCl)} récurrent/an</div></div>
+    <div class="kpi"><div class="k">Pipeline</div><div class="v num" style="color:var(--blue)">${pipe.length}</div><div class="s num">${keur(caPipe)} en devis</div></div>
+    <div class="kpi"><div class="k">Prospects</div><div class="v num">${pros.length}</div><div class="s">${res.length} résilié${res.length > 1 ? 's' : ''} à reconquérir</div></div>
+    <div class="kpi"><div class="k">Renouvellements</div><div class="v num" style="color:${soon ? 'var(--amber)' : 'var(--ink)'}">${soon}</div><div class="s">dans les 4 mois</div></div>
+  </div></div>`;
+
+  if (!L_.length) return h + `<div class="empty">Rien à afficher avec ces filtres.</div>`;
+
+  // Matériel installé
+  if (cl.length) {
+    const rowsEq = EQUIP.map(e => {
+      const eqC = cl.filter(r => r.eq[e.key]);
+      return { e, n: eqC.length, q: eqC.reduce((s, r) => s + r.eq[e.key], 0) };
+    }).filter(x => x.n > 0);
+    h += `<div class="sec"><div class="sec-t"><span>Parc installé · ${cl.length} clients</span></div>` +
+      (rowsEq.length ? rowsEq.map(x => `<div class="bar-row"><span>${esc(x.e.label)}</span>
+        <span class="bar"><span style="width:${Math.round(100 * x.n / cl.length)}%;background:${x.e.fg}55"></span></span>
+        <span class="num muted"><b style="color:var(--ink)">${x.q}</b> · ${x.n}/${cl.length}</span></div>`).join('')
+      : '<div class="empty">Aucun matériel trouvé dans Sellsy pour ces clients.</div>') + `</div>`;
+  }
+
+  // Clients à voir
+  const aVoir = [...cl, ...pipe].filter(r => r.prio > 0).sort(byPrio).slice(0, 6);
+  if (aVoir.length) h += `<div class="sec"><div class="sec-t"><span>Clients & pipeline à voir</span></div>${aVoir.map(r => itemHTML(r, { why: true })).join('')}</div>`;
+
+  // Prospects prioritaires
+  const top = [...pros, ...res].sort(byPrio).slice(0, 8);
+  const nLv = k => pros.filter(r => levelOf(r).key === k).length;
+  if (top.length) h += `<div class="sec"><div class="sec-t"><span>Prospects prioritaires</span><button class="link" data-goto-list="prio">Tout voir →</button></div>
+    <div class="small muted" style="margin:-4px 0 6px"><span class="lvl p">● ${nLv('p')} priorité</span> <span class="lvl v">● ${nLv('v')} à voir</span> <span class="lvl t">○ ${nLv('t')} plus tard</span></div>
+    ${top.map(r => itemHTML(r, { why: true, stars: true, right: '' })).join('')}
+    <div class="btn-row" style="margin-top:8px"><button class="btn ghost" data-add-top="8">+ Ajouter ces 8 à la tournée</button></div></div>`;
+
+  // Types dans la sélection
+  const bt = {};
+  L_.forEach(r => { const t = bt[r.type] || (bt[r.type] = { n: 0, c: 0, p: 0 }); t.n++; if (r.statut === 'Client') t.c++; if (r.statut === 'Prospect') t.p++; });
+  const types = Object.entries(bt).sort((a, b) => b[1].n - a[1].n).slice(0, 10);
+  h += `<div class="sec"><div class="sec-t"><span>Types d'établissements</span><span>clients / total</span></div>` +
+    types.map(([t, v]) => `<div class="bar-row" style="grid-template-columns:1fr 60px auto;cursor:pointer" data-type="${esc(t)}">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t)}</span>
+      <span class="bar"><span style="width:${Math.max(3, Math.round(100 * v.c / v.n))}%;background:var(--green)"></span></span>
+      <span class="num muted"><b style="color:var(--ink)">${v.c}</b> / ${v.n}</span></div>`).join('') + `</div>`;
+  return h;
+}
+
+function listeHTML() {
+  const sorts = { prio: 'Priorité', ca: 'CA récurrent', dist: 'Distance', nom: 'Nom', contact: 'Contact le plus ancien' };
+  const s = S.listSort;
+  let L_ = [...S.filtered];
+  if (s === 'prio') L_.sort(byPrio);
+  if (s === 'ca') L_.sort((a, b) => b.ca - a.ca);
+  if (s === 'dist') L_.sort((a, b) => (a._d ?? 1e9) - (b._d ?? 1e9));
+  if (s === 'nom') L_.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  if (s === 'contact') L_.sort((a, b) => (a.contact ? a.contact.getTime() : 0) - (b.contact ? b.contact.getTime() : 0));
+  const MAX = 250;
+  return `<div style="display:flex;gap:6px;margin-bottom:8px">
+      <select class="input" id="list-sort" style="flex:1">${Object.entries(sorts).filter(([k]) => k !== 'dist' || S.zone).map(([k, l]) => `<option value="${k}" ${k === s ? 'selected' : ''}>Trier : ${l}</option>`).join('')}</select>
+      <button class="btn ghost" id="list-export" title="Exporter la sélection en CSV">↓ CSV</button>
+    </div>
+    ${L_.slice(0, MAX).map(r => itemHTML(r, { stars: true })).join('') || '<div class="empty">Aucun établissement.</div>'}
+    ${L_.length > MAX ? `<div class="empty">… ${L_.length - MAX} autres. Affine avec une zone ou des filtres (l'export CSV contient tout).</div>` : ''}`;
+}
+
+function ficheHTML(r) {
+  const cfg = STATUS[r.statut];
+  const inTour = S.tour.ids.includes(r.id);
+  const de = r.ech ? daysFrom(r.ech) : null;
+  const since = r.contact ? -daysFrom(r.contact) : null;
+  const rec = recency(r);
+  const same = S.rows.filter(x => x.id !== r.id && Math.abs(x.lat - r.lat) < 1e-5 && Math.abs(x.lon - r.lon) < 1e-5);
+  const gq = encodeURIComponent(r.nom + ' ' + r.ville);
+  let h = `<button class="back" data-back>← Retour</button>
+  <div class="fiche-head">
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill" style="${cfg.pill}">${esc(r.statut)}</span>${r.isDup ? '<span class="pill" style="background:#FCEEDF;color:#C05621">Doublon présumé</span>' : ''}</div>
+    <div class="name">${esc(r.nom)}</div>
+    <div class="sub">${esc(r.type)} · ${esc(r.ville)} · ${esc(regionName(r.region))}${r._d != null ? ` · ${r._d.toFixed(1).replace('.', ',')} km` : ''}</div>
+  </div>
+  <div class="btn-row sec">
+    <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lon}">→ Itinéraire</a>
+    <button class="btn ghost" data-tour="${esc(r.id)}">${inTour ? '✓ Dans la tournée' : '+ Tournée'}</button>
+    <button class="btn ghost" data-zone-here="${esc(r.id)}">◎ Explorer autour</button>
+    <a class="btn ghost" target="_blank" rel="noopener" href="https://www.google.com/search?q=${gq}">Google ↗</a>
+  </div>`;
+
+  if (isPros(r)) {
+    const p = r.pts || {};
+    h += `<div class="sec"><div class="sec-t"><span>Priorité ${lvlBadge(r)}</span><span class="num">${Math.max(0, Math.round(r.prio))} / 100</span></div>
+      <div class="reasons">${r.why.map(w => `<span class="why ${w.c}">${esc(w.t)}</span>`).join('') || '<span class="small muted">Aucun signal particulier.</span>'}</div>
+      <div class="small muted" style="margin-top:6px">Lien client ${p.lien || 0}/35 · Échange ${p.echange || 0}/25 · Taille ${p.taille || 0}/25 · Type ${p.type || 0}/15</div></div>`;
+  } else if (r.why.length) h += `<div class="sec"><div class="sec-t">À surveiller</div><div class="reasons">${r.why.map(w => `<span class="why ${w.c}">${esc(w.t)}</span>`).join('')}</div></div>`;
+
+  // HubSpot : activité commerciale (lecture seule) — le détail des contacts reste dans HubSpot
+  const hs = r.hs;
+  if (hs) {
+    const stade = { lead: 'Lead', opportunity: 'Opportunité', customer: 'Client', subscriber: 'Abonné', evangelist: 'Ambassadeur', marketingqualifiedlead: 'MQL', salesqualifiedlead: 'SQL' }[hs.s] || hs.s || '—';
+    h += `<div class="sec"><div class="sec-t"><span>HubSpot</span><a class="link" target="_blank" rel="noopener" href="${HUBSPOT_REC(hs.h[0])}">Ouvrir dans HubSpot ↗</a></div><div class="kv">
+      <span class="k">Dernier échange</span><span><b>${hs.l ? fdate(new Date(hs.l)) : 'aucun'}</b>${hs.n ? ` <span class="muted">· ${hs.n} échange${hs.n > 1 ? 's' : ''}</span>` : ''}</span>
+      ${hs.na ? `<span class="k">Prochaine action</span><span><b>${fdate(new Date(hs.na))}</b></span>` : ''}
+      <span class="k">Contacts</span><span>${hs.c || 0}</span>
+      <span class="k">Stade</span><span>${esc(stade)}</span>
+      ${hs.d ? `<span class="k">Affaires ouvertes</span><span><b>${hs.d}</b>${hs.v ? ' · ' + eur(hs.v) : ''}</span>` : ''}
+      ${hs.ls ? `<span class="k">Licences</span><span><b style="color:${hs.lu / hs.ls < 0.5 ? 'var(--red)' : 'var(--ink)'}">${hs.lu} utilisées</b> / ${hs.ls} signées</span>` : ''}
+      ${hs.e ? `<span class="k">Enquête 2026</span><span>${esc(hs.e)}</span>` : ''}
+    </div>${hs.h.length > 1 ? `<div class="small muted" style="margin-top:4px">${hs.h.length} fiches HubSpot reliées à cet établissement.</div>` : ''}</div>`;
+  } else if (S.data && !S.data.csv) h += `<div class="sec"><div class="sec-t">HubSpot</div><div class="small muted">Aucune fiche HubSpot reliée.</div></div>`;
+
+  // FINESS : taille et gestionnaire (+ autres établissements du même gestionnaire)
+  if (r.places || r.ej) {
+    const grp = r.ej ? S.rows.filter(x => x.ej === r.ej && x.id !== r.id) : [];
+    const grpCl = grp.filter(x => x.statut === 'Client');
+    h += `<div class="sec"><div class="sec-t"><span>Établissement</span>${r.finessNo ? `<span class="small muted">FINESS ${esc(r.finessNo)}</span>` : ''}</div>
+      ${r.places ? `<div class="small"><b>${r.places}</b> places installées</div>` : ''}
+      ${grp.length ? `<div class="small" style="margin-top:4px">Même gestionnaire : <b>${grp.length}</b> autre${grp.length > 1 ? 's' : ''} établissement${grp.length > 1 ? 's' : ''}${grpCl.length ? `, dont <b style="color:var(--green)">${grpCl.length} client${grpCl.length > 1 ? 's' : ''}</b>` : ''}</div>
+        ${[...grpCl, ...grp.filter(x => x.statut !== 'Client').sort(byPrio)].slice(0, 5).map(x => itemHTML(x, { stars: true })).join('')}` : ''}</div>`;
+  }
+
+  const showMoney = r.statut === 'Client' || r.compte || r.ca > 0;
+  if (showMoney) {
+    h += `<div class="sec"><div class="kpis">
+      <div class="kpi"><div class="k">${PIPE.includes(r.statut) ? 'Montant devis' : 'CA récurrent / an'}</div><div class="v num">${r.ca ? eur(r.ca) : '—'}</div><div class="s">${r.caSrc === 'Sellsy' ? 'MRR annualisé Sellsy' : r.caSrc === 'Sheet' ? 'colonne CA du Sheet' : ''}</div></div>
+      <div class="kpi"><div class="k">Échéance</div><div class="v num" style="font-size:16px;color:${de != null ? (de <= 60 ? 'var(--red)' : de <= 120 ? 'var(--amber)' : 'var(--green)') : r.echu ? 'var(--red)' : 'var(--ink)'}">${r.ech ? fdate(r.ech) : r.echu ? 'Échu' : '—'}</div><div class="s">${de != null ? `dans ${de} j` : r.echu ? 'depuis le ' + fdate(r.echu) : ''}</div></div>
+    </div>`;
+    if (r.compte && r.caSheet && r.caSrc === 'Sellsy' && Math.abs(r.caSheet - r.ca) / Math.max(r.ca, 1) > 0.2)
+      h += `<div class="note warn" style="margin-top:8px">La colonne CA du Sheet indique ${eur(r.caSheet)} (écart de ${Math.round(100 * (r.caSheet - r.ca) / r.ca)} %) — à mettre à jour ?</div>`;
+    h += `</div>`;
+  }
+
+  if (r.statut === 'Client' || Object.keys(r.eq).length) {
+    h += `<div class="sec"><div class="sec-t"><span>Matériel & produits</span>${r.corrige ? `<span class="pill" style="background:#FAEEDA;color:#854F0B">corrigé à la main${r.corrDate ? ' · ' + esc(r.corrDate) : ''}</span>` : ''}</div>
+      ${eqChips(r.eq, 'Aucun produit en cours trouvé dans Sellsy.')}
+      <div class="small muted" style="margin-top:6px">Licences, packs, VR, formation : contrats en cours. Casques, tablettes, enceintes : total acheté.</div></div>`;
+  }
+
+  h += `<div class="sec"><div class="sec-t">Suivi</div>
+    <div class="small" style="display:flex;align-items:center;gap:6px"><span class="dot" style="background:${rec.color}"></span>Dernier contact : <b>${r.contact ? fdate(r.contact) : 'jamais'}</b>${since != null ? ` <span class="muted">(il y a ${since} j)</span>` : ''}</div>
+    ${r.compte && r.compte.derniereFacture ? `<div class="small" style="margin-top:4px">Dernière facture : <b>${fdate(r.compte.derniereFacture)}</b></div>` : ''}
+    ${r.note ? `<div class="note" style="margin-top:8px">📝 ${esc(r.note)}</div>` : ''}
+    ${r.adresse ? `<div class="small muted" style="margin-top:8px">${esc(r.adresse)}</div>` : ''}
+    ${r.isDup && r.dupInfo ? `<div class="note warn" style="margin-top:8px">${esc(r.dupInfo)}</div>` : ''}
+    <div class="small muted" style="margin-top:6px">ID ${esc(r.id)}</div>
+  </div>`;
+
+  if (r.ref && S.byId.get(r.ref)) h += `<div class="sec"><div class="sec-t">Client de référence à proximité</div>${itemHTML(S.byId.get(r.ref))}</div>`;
+  if (same.length) h += `<div class="sec"><div class="sec-t">Même adresse</div>${same.map(x => itemHTML(x)).join('')}</div>`;
+
+  if (r.compte && r.compte.lines.length) {
+    const lines = [...r.compte.lines].sort((a, b) => (b.fin ? b.fin.getTime() : 0) - (a.fin ? a.fin.getTime() : 0));
+    h += `<div class="sec"><div class="sec-t"><span>Lignes Sellsy (${lines.length})</span><button class="link" data-toggle-detail>${S.ficheDetail ? 'masquer' : 'afficher'}</button></div>
+      ${S.ficheDetail ? `<div class="lines">${lines.map(l => `<div class="line"><div style="min-width:0"><b>${esc(l.produit || l.ref || '—')}</b>${isAvoir(l) ? ' <span style="color:var(--red)">avoir</span>' : ''}<div class="muted">${fdate(l.debut)} → ${fdate(l.fin)} · qté ${fmt(l.qte)}</div></div><div class="num" style="text-align:right;white-space:nowrap">${eur(l.ca)}${l.isMrr ? `<div class="muted">${eur(l.mrrM)}/mois</div>` : ''}</div></div>`).join('')}</div>` : ''}</div>`;
+  }
+  return h;
+}
+
+// ---------------------------------------------------------------- TOURNÉE
+function tourStops() { return S.tour.ids.map(id => S.byId.get(id)).filter(Boolean); }
+function tourStart() {
+  if (S.zone) return { lat: S.zone.lat, lon: S.zone.lon, label: S.zone.label };
+  if (S.myPos) return S.myPos;
+  return null;
+}
+function toggleTour(id) {
+  const i = S.tour.ids.indexOf(id);
+  if (i >= 0) S.tour.ids.splice(i, 1); else S.tour.ids.push(id);
+  saveLS('atlas5.tour', S.tour); renderPanel();
+}
+function optimizeTour() {
+  const stops = tourStops(); if (stops.length < 2) return;
+  const fixedStart = tourStart();
+  const start = fixedStart || stops[0];
+  const rem = fixedStart ? [...stops] : stops.slice(1), route = []; let cur = start;
+  while (rem.length) {
+    let bi = 0, bd = Infinity;
+    rem.forEach((r, i) => { const d = hav(cur.lat, cur.lon, r.lat, r.lon); if (d < bd) { bd = d; bi = i; } });
+    cur = rem.splice(bi, 1)[0]; route.push(cur);
+  }
+  // 2-opt
+  const loop = S.tour.ret && fixedStart;
+  const pts = [start, ...route, ...(loop ? [start] : [])];
+  const dist = (a, b) => hav(a.lat, a.lon, b.lat, b.lon);
+  let improved = true, guard = 0;
+  while (improved && guard++ < 50) {
+    improved = false;
+    for (let i = 1; i < pts.length - 2; i++) for (let j = i + 1; j < pts.length - 1; j++) {
+      if (dist(pts[i-1], pts[i]) + dist(pts[j], pts[j+1]) > dist(pts[i-1], pts[j]) + dist(pts[i], pts[j+1]) + 0.01) {
+        const seg = pts.slice(i, j + 1).reverse(); pts.splice(i, j - i + 1, ...seg); improved = true;
+      }
+    }
+  }
+  const ordered = fixedStart ? pts.slice(1, loop ? -1 : undefined) : pts.slice(0, loop ? -1 : undefined);
+  S.tour.ids = ordered.map(p => p.id);
+  saveLS('atlas5.tour', S.tour); renderPanel();
+}
+function tourKm() {
+  const st = tourStops(), s = tourStart(); if (!st.length) return 0;
+  let km = 0, prev = s || st[0];
+  st.forEach(r => { km += hav(prev.lat, prev.lon, r.lat, r.lon); prev = r; });
+  if (S.tour.ret && s) km += hav(prev.lat, prev.lon, s.lat, s.lon);
+  return km;
+}
+function gmapsLinks() {
+  const st = tourStops(), s = tourStart(); if (!st.length) return [];
+  const pts = [...(s ? [s] : []), ...st, ...(S.tour.ret && s ? [s] : [])];
+  const links = [], CH = 10; // Google Maps : 10 points max par itinéraire (départ + 8 étapes + arrivée)
+  for (let i = 0; i < pts.length - 1; i += CH - 1) {
+    const seg = pts.slice(i, i + CH); if (seg.length < 2) break;
+    const p = new URLSearchParams({ api: '1', origin: `${seg[0].lat},${seg[0].lon}`, destination: `${seg[seg.length-1].lat},${seg[seg.length-1].lon}`, travelmode: 'driving' });
+    if (seg.length > 2) p.set('waypoints', seg.slice(1, -1).map(x => `${x.lat},${x.lon}`).join('|'));
+    links.push({ url: 'https://www.google.com/maps/dir/?' + p.toString(), n: seg.length });
+  }
+  return links;
+}
+function tourHTML() {
+  const st = tourStops(), s = tourStart();
+  let h = `<div class="sec"><div class="note">Départ : <b>${s ? esc(s.label) : 'aucun'}</b>${s ? '' : ' — cherche une ville, ou « Autour de moi » ; sinon la tournée part du 1er arrêt.'}</div>
+    <label class="switch" style="margin-top:10px"><span>Retour au point de départ</span><input type="checkbox" id="tour-ret" ${S.tour.ret ? 'checked' : ''}></label></div>`;
+  if (!st.length) return h + `<div class="empty">Aucun arrêt. Ajoute des établissements avec le bouton <b>+</b> (fiche, liste, résumé), ou prends directement les prospects prioritaires d'une zone.</div>
+    ${S.zone ? `<button class="btn" data-add-top="8">+ Ajouter les 8 prospects prioritaires de la zone</button>` : ''}`;
+  const km = tourKm();
+  h += `<div class="sec"><div class="kpis">
+      <div class="kpi"><div class="k">Arrêts</div><div class="v num">${st.length}</div></div>
+      <div class="kpi"><div class="k">Distance</div><div class="v num">≈ ${fmt(km * 1.3)} km</div><div class="s">${fmt(km)} km à vol d'oiseau +30 %</div></div>
+    </div></div>
+    <div class="btn-row sec"><button class="btn" id="tour-opt">⟲ Optimiser l'ordre</button><button class="btn ghost" id="tour-clear">Vider</button><button class="btn ghost" id="tour-export">↓ CSV</button></div>
+    <div class="sec">${st.map((r, i) => `<div class="stop"><span class="n">${i + 1}</span>
+      <div class="it-main" data-open="${esc(r.id)}" style="cursor:pointer"><div class="it-name">${esc(r.nom)}</div><div class="it-sub">${esc(r.statut)} · ${esc(r.ville)}</div></div>
+      <button class="mv" data-mv="${i}" data-dir="-1" title="Monter">↑</button><button class="mv" data-mv="${i}" data-dir="1" title="Descendre">↓</button>
+      <button class="mv" data-tour="${esc(r.id)}" title="Retirer">✕</button></div>`).join('')}</div>
+    <div class="sec"><div class="sec-t">Ouvrir dans Google Maps</div>${gmapsLinks().map((l, i, a) => `<a class="btn ghost" style="width:100%;margin-bottom:6px" target="_blank" rel="noopener" href="${l.url}">🗺 ${a.length > 1 ? `Partie ${i + 1}/${a.length}` : 'Itinéraire complet'}</a>`).join('')}</div>`;
+  return h;
+}
+function renderTourLayer() {
+  S.tourLayer.clearLayers();
+  const st = tourStops(); if (!st.length) return;
+  const s = tourStart();
+  const pts = [...(s ? [[s.lat, s.lon]] : []), ...st.map(r => [r.lat, r.lon]), ...(S.tour.ret && s ? [[s.lat, s.lon]] : [])];
+  if (S.ptab === 'tour' && !S.fiche) L.polyline(pts, { renderer: S.renderer, color: '#2A5C9C', weight: 2.5, opacity: 0.7, dashArray: '6 6', interactive: false }).addTo(S.tourLayer);
+  st.forEach((r, i) => {
+    const m = L.marker([r.lat, r.lon], { icon: L.divIcon({ className: '', html: `<div class="tour-pin"><span>${i + 1}</span></div>`, iconSize: [22, 22], iconAnchor: [11, 22] }), zIndexOffset: 1000 });
+    m.on('click', () => openFiche(r.id));
+    S.tourLayer.addLayer(m);
+  });
+}
+function addTopToTour(n) {
+  const top = S.filtered.filter(r => r.statut === 'Prospect' || r.statut === 'Résilié').sort(byPrio).slice(0, n);
+  top.forEach(r => { if (!S.tour.ids.includes(r.id)) S.tour.ids.push(r.id); });
+  saveLS('atlas5.tour', S.tour);
+  S.ptab = 'tour'; S.fiche = null;
+  optimizeTour(); renderPanel();
+}
+
+// ---------------------------------------------------------------- FICHE
+function openFiche(id) {
+  const r = S.byId.get(id); if (!r) return;
+  if (r._d == null && S.zone) r._d = hav(S.zone.lat, S.zone.lon, r.lat, r.lon);
+  S.fiche = id; S.ficheDetail = false;
+  showView('map');
+  renderPanel(); highlight();
+  $('panel-body').scrollTop = 0;
+  if (sheetState !== 'full') setSheet('half');
+  if (isMobile()) setTimeout(() => ensureVisible(r.lat, r.lon), 60);
+}
+function closeFiche() { S.fiche = null; renderPanel(); highlight(); }
+
+// ---------------------------------------------------------------- RECHERCHE
+let sTimer = null, sIdx = -1;
+function onSearch() { clearTimeout(sTimer); sTimer = setTimeout(renderSearch, 120); }
+function renderSearch() {
+  const q = $('search').value.trim(), box = $('search-results');
+  if (q.length < 2) { box.classList.add('hidden'); return; }
+  const nq = norm(q);
+  const hits = S.rows.filter(r => !r.isDup && (norm(r.nom).includes(nq) || norm(r.ville).includes(nq) || r.cp.startsWith(q)))
+    .sort((a, b) => (norm(b.nom).startsWith(nq) - norm(a.nom).startsWith(nq)) || (STATUS_ORDER.indexOf(b.statut) - STATUS_ORDER.indexOf(a.statut)) || b.ca - a.ca)
+    .slice(0, 8);
+  sIdx = -1;
+  box.innerHTML = `<div class="sr place" data-place="${esc(q)}">📍 Analyser la zone autour de « ${esc(q)} »</div>` +
+    hits.map(r => `<div class="sr" data-pick="${esc(r.id)}"><span class="dot" style="background:${STATUS[r.statut].color}"></span>
+      <span style="flex:1;min-width:0"><b>${esc(r.nom)}</b> <span class="muted">· ${esc(r.ville)}</span></span>
+      <span class="muted num" style="font-size:10px">${r.ca > 0 ? keur(r.ca) : ''}</span></div>`).join('');
+  box.classList.remove('hidden');
+}
+async function searchPlace(q) {
+  $('search-results').classList.add('hidden');
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=fr&limit=1&accept-language=fr&q=${encodeURIComponent(q)}`);
+    const d = await r.json();
+    if (!d[0]) { alert(`Lieu « ${q} » introuvable.`); return; }
+    const label = (d[0].display_name || q).split(',').slice(0, 2).join(',').trim();
+    showView('map');
+    setZone(+d[0].lat, +d[0].lon, label);
+    $('search').blur();
+  } catch (e) { alert('Recherche de lieu indisponible (réseau ?).'); }
+}
+
+// ---------------------------------------------------------------- MOBILE SHEET
+function isMobile() { return window.matchMedia('(max-width: 820px)').matches; }
+let sheetState = 'peek';
+function sheetPx() {
+  if (!isMobile()) return 0;
+  const H = $('view-map').clientHeight;
+  return sheetState === 'peek' ? 150 : sheetState === 'half' ? Math.round(H * 0.55) : Math.round(H * 0.9);
+}
+function setSheet(st) {
+  if (!isMobile()) return;
+  sheetState = st;
+  document.documentElement.style.setProperty('--sheet-h', sheetPx() + 'px');
+}
+
+// ---------------------------------------------------------------- VUES
+function showView(v) {
+  ['map', 'comptes', 'synthese'].forEach(x => $('view-' + x).classList.toggle('hidden', x !== v));
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  if (v === 'map') setTimeout(() => S.map.invalidateSize(), 50);
+  if (v === 'comptes') renderComptes();
+  if (v === 'synthese') renderSynthese();
+}
+
+// ---------------------------------------------------------------- COMPTES
+function comptesRows() {
+  let L_ = S.rows.filter(r => (r.statut === 'Client' || r.compte) && match(r, 'status'));
+  const q = norm(S.comptesQ);
+  if (q) L_ = L_.filter(r => norm(r.nom).includes(q) || norm(r.ville).includes(q));
+  const s = S.comptesSort;
+  if (s === 'ca') L_.sort((a, b) => b.ca - a.ca);
+  if (s === 'ech') L_.sort((a, b) => (a.ech ? a.ech.getTime() : a.echu ? 0 : 9e15) - (b.ech ? b.ech.getTime() : b.echu ? 0 : 9e15));
+  if (s === 'contact') L_.sort((a, b) => (a.contact ? a.contact.getTime() : 0) - (b.contact ? b.contact.getTime() : 0));
+  if (s === 'nom') L_.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  return L_;
+}
+function renderComptes() {
+  const L_ = comptesRows();
+  const ca = L_.reduce((s, r) => s + r.ca, 0), mrr = L_.reduce((s, r) => s + (r.compte ? r.compte.mrrM : 0), 0);
+  const soon = L_.filter(r => r.ech && daysFrom(r.ech) <= 90).length;
+  $('c-kpis').innerHTML = `
+    <div class="card pad"><div class="lbl">Comptes</div><div class="display num" style="font-size:28px">${L_.length}</div></div>
+    <div class="card pad"><div class="lbl">CA récurrent / an</div><div class="display num" style="font-size:28px;color:var(--green)">${keur(ca)}</div></div>
+    <div class="card pad"><div class="lbl">MRR mensuel</div><div class="display num" style="font-size:28px;color:var(--purple)">${keur(mrr)}</div></div>
+    <div class="card pad"><div class="lbl">Échéances &lt; 90 j</div><div class="display num" style="font-size:28px;color:${soon ? 'var(--amber)' : 'var(--ink)'}">${soon}</div></div>`;
+  const noSellsy = L_.filter(r => r.statut === 'Client' && !r.compte).length;
+  const notes = [];
+  if (noSellsy) notes.push(`${noSellsy} client(s) sans facturation Sellsy (ID non retrouvé) : CA repris de la colonne CA du Sheet.`);
+  if (S.horsBase) notes.push(`${S.horsBase} compte(s) Sellsy n'existent pas dans ta base (autres secteurs) et ne sont pas affichés.`);
+  const b = S.data && S.data.bilan;
+  if (b && b.hubspot) notes.push(`HubSpot : ${b.lies} établissements reliés sur ${b.hubspot} fiches${b.aValider ? ` · ${b.aValider} rapprochement(s) à valider dans l'onglet « Liaisons HubSpot » du Sheet` : ''}.`);
+  $('c-note').innerHTML = notes.map(esc).join('<br>'); $('c-note').classList.toggle('hidden', !notes.length);
+  $('c-table').innerHTML = `<thead><tr><th>Établissement</th><th class="r">CA récurrent</th><th>Matériel & produits</th><th>Échéance</th><th>Dernier contact</th></tr></thead><tbody>` +
+    L_.map(r => {
+      const de = r.ech ? daysFrom(r.ech) : null;
+      const ec = de != null ? (de <= 60 ? 'var(--red)' : de <= 120 ? 'var(--amber)' : 'var(--ink)') : r.echu ? 'var(--red)' : 'var(--slate)';
+      const rc = recency(r);
+      return `<tr class="click" data-open="${esc(r.id)}">
+        <td class="first"><div style="font-weight:700">${esc(r.nom)}</div><div class="small muted">${r.statut !== 'Client' ? `<span class="pill" style="${STATUS[r.statut].pill}">${esc(r.statut)}</span> ` : ''}${esc(r.type)} · ${esc(r.ville)}</div></td>
+        <td class="r num" data-l="CA récurrent"><b>${r.ca ? eur(r.ca) : '—'}</b>${r.caSrc === 'Sheet' ? '<div class="small muted">Sheet</div>' : ''}</td>
+        <td data-l="Matériel">${eqChips(r.eq, '—')}</td>
+        <td data-l="Échéance" class="num" style="color:${ec};white-space:nowrap">${r.ech ? fdate(r.ech) + `<div class="small">dans ${de} j</div>` : r.echu ? 'échu ' + fdate(r.echu) : '—'}</td>
+        <td data-l="Contact" class="num" style="white-space:nowrap"><span class="dot" style="background:${rc.color}"></span> ${r.contact ? fdate(r.contact) : 'jamais'}</td>
+      </tr>`;
+    }).join('') + `</tbody>` + (L_.length ? '' : `<tbody><tr><td colspan="5" class="empty">Aucun compte avec ces filtres.</td></tr></tbody>`);
+}
+
+// ---------------------------------------------------------------- SYNTHÈSE
+function renderSynthese() {
+  const base = S.rows.filter(r => !r.isDup);
+  const agg = key => {
+    const m = {};
+    base.forEach(r => {
+      const k = key(r); const a = m[k] || (m[k] = { n: 0, c: 0, ca: 0, pipe: 0, p: 0, res: 0 });
+      a.n++;
+      if (r.statut === 'Client') { a.c++; a.ca += r.ca; }
+      if (PIPE.includes(r.statut)) a.pipe += r.caSheet;
+      if (r.statut === 'Prospect') a.p++;
+      if (r.statut === 'Résilié') a.res++;
+    });
+    return m;
+  };
+  const all = Object.values(agg(() => 'all'))[0] || { n: 0, c: 0, ca: 0, pipe: 0, p: 0 };
+  $('s-kpis').innerHTML = `
+    <div class="card pad"><div class="lbl">Établissements</div><div class="display num" style="font-size:28px">${fmt(all.n)}</div></div>
+    <div class="card pad"><div class="lbl">Clients</div><div class="display num" style="font-size:28px;color:var(--green)">${all.c}</div><div class="small muted">${(100 * all.c / Math.max(all.n, 1)).toFixed(1).replace('.', ',')} % de pénétration</div></div>
+    <div class="card pad"><div class="lbl">CA récurrent / an</div><div class="display num" style="font-size:28px;color:var(--green)">${keur(all.ca)}</div></div>
+    <div class="card pad"><div class="lbl">Pipeline (devis)</div><div class="display num" style="font-size:28px;color:var(--blue)">${keur(all.pipe)}</div></div>`;
+  const pen = (c, n) => `<div class="pen"><span class="bar"><span style="width:${Math.min(100, Math.max(2, 100 * c / Math.max(n, 1) * 5))}%;background:var(--green)"></span></span><span class="num">${(100 * c / Math.max(n, 1)).toFixed(1).replace('.', ',')} %</span></div>`;
+  const regs = agg(r => r.regionKey), depts = agg(r => r.regionKey + '|' + r.deptCode);
+  const deptNames = {}; base.forEach(r => deptNames[r.regionKey + '|' + r.deptCode] = r.dept);
+  const head = l => `<thead><tr><th>${l}</th><th class="r">Clients</th><th class="r">CA récurrent</th><th class="r">Pipeline</th><th class="r">Prospects</th><th>Pénétration</th></tr></thead>`;
+  const row = (name, a, attrs = '', cls = '') => `<tr class="${cls}" ${attrs}><td>${name}</td><td class="r num">${a.c}</td><td class="r num"><b>${keur(a.ca)}</b></td><td class="r num">${a.pipe ? keur(a.pipe) : '—'}</td><td class="r num">${fmt(a.p)}</td><td>${pen(a.c, a.n)}</td></tr>`;
+  $('s-regions').innerHTML = head('Région') + '<tbody>' + Object.entries(regs).sort((a, b) => b[1].ca - a[1].ca).map(([k, a]) => {
+    const open = S.openRegions.has(k);
+    let h = row(`<b>${open ? '▾' : '▸'} ${esc(regionName(k))}</b>${MES_REGIONS.includes(k) ? '' : ' <span class="muted small">(hors périmètre)</span>'}`, a, `data-region="${esc(k)}"`, 'click');
+    if (open) h += Object.entries(depts).filter(([dk]) => dk.startsWith(k + '|')).sort((x, y) => y[1].ca - x[1].ca)
+      .map(([dk, d]) => row(`<span style="padding-left:16px">${esc(deptNames[dk] || dk)}</span>`, d, `data-dept="${esc(dk)}"`, 'sub click')).join('');
+    return h;
+  }).join('') + '</tbody>';
+
+  const ts = Object.entries(S.typeStats).sort((a, b) => b[1].clients - a[1].clients || b[1].n - a[1].n);
+  $('s-types').innerHTML = `<thead><tr><th>Type</th><th class="r">Établissements</th><th class="r">Clients</th><th>Pénétration</th><th class="r">CA moyen / client</th><th class="r">Prospects restants</th><th class="r">Potentiel indicatif</th></tr></thead><tbody>` +
+    ts.map(([t, v]) => `<tr class="click" data-type-map="${esc(t)}"><td><b>${esc(t)}</b></td><td class="r num">${fmt(v.n)}</td><td class="r num">${v.clients}</td><td>${pen(v.clients, v.n)}</td>
+      <td class="r num">${v.caMoy ? eur(v.caMoy) : '—'}</td><td class="r num">${fmt(v.prospects)}</td><td class="r num">${v.caMoy ? keur(v.prospects * v.caMoy * v.rate) : '—'}</td></tr>`).join('') + '</tbody>';
+}
+
+// ---------------------------------------------------------------- EXPORT
+function downloadCSV(name, headers, rows) {
+  const q = v => { const s = v == null ? '' : String(v); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const csv = '﻿' + [headers, ...rows].map(r => r.map(q).join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `Atlas_${name}_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+}
+const exportRow = (r, i) => [...(i != null ? [i + 1] : []), r.id, r.nom, r.statut, r.type, Math.round(r.ca), r.ville, r.cp, r.dept, regionName(r.region),
+  r.contact ? fdate(r.contact) : '', r.ech ? fdate(r.ech) : '', EQUIP.filter(e => r.eq[e.key]).map(e => `${e.label} x${r.eq[e.key]}`).join(', '),
+  isPros(r) ? levelOf(r).label : '', r.why.map(w => w.t).join(' | '), r.places || '', r.adresse, r._d != null ? r._d.toFixed(1).replace('.', ',') : ''];
+const EXPORT_H = ['ID', 'Nom', 'Statut', 'Type', 'CA récurrent', 'Ville', 'CP', 'Département', 'Région', 'Dernier contact', 'Échéance', 'Matériel', 'Niveau', 'Raisons / alertes', 'Places', 'Adresse', 'Distance (km)'];
+
+// ---------------------------------------------------------------- UI BINDINGS
+function bindUI() {
+  document.querySelectorAll('.tab').forEach(b => b.onclick = () => showView(b.dataset.view));
+  $('search').addEventListener('input', onSearch);
+  $('search').addEventListener('keydown', e => {
+    const items = [...document.querySelectorAll('#search-results .sr')];
+    if (e.key === 'Escape') { $('search-results').classList.add('hidden'); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); sIdx = Math.max(0, Math.min(items.length - 1, sIdx + (e.key === 'ArrowDown' ? 1 : -1)));
+      items.forEach((x, i) => x.classList.toggle('kb', i === sIdx)); return;
+    }
+    if (e.key === 'Enter') { (items[sIdx] || items[0])?.click(); }
+  });
+  document.addEventListener('click', e => { if (!$('search-results').contains(e.target) && e.target !== $('search')) $('search-results').classList.add('hidden'); });
+  $('search-results').addEventListener('click', e => {
+    const p = e.target.closest('[data-place]'), k = e.target.closest('[data-pick]');
+    if (p) searchPlace(p.dataset.place);
+    if (k) { $('search-results').classList.add('hidden'); const r = S.byId.get(k.dataset.pick); openFiche(r.id); S.map.setView([r.lat, r.lon], 13); }
+  });
+  $('sync-btn').onclick = () => refreshData({ blocking: !S.rows.length, force: true });
+  $('data-err').onclick = () => alert((S.data.erreurs || []).join('\n\n'));
+
+  // Filtres
+  $('open-filters').onclick = () => $('drawer').classList.add('open');
+  $('close-filters').onclick = () => $('drawer').classList.remove('open');
+  $('reset-filters').onclick = () => { S.f = defaultFilters(); buildDeptOptions(); applyFilters(); };
+  $('f-region').onchange = e => { S.f.region = e.target.value; S.f.dept = ''; buildDeptOptions(); applyFilters({ fit: true }); };
+  $('f-dept').onchange = e => { S.f.dept = e.target.value; applyFilters({ fit: true }); };
+  ['has', 'hasnot', 'contact', 'ech', 'level'].forEach(k => $('f-' + k).onchange = e => { S.f[k] = e.target.value; applyFilters(); });
+  $('f-dups').onchange = e => { S.f.dups = e.target.checked; applyFilters(); };
+  $('f-status').onclick = e => { const t = e.target.closest('[data-status]'); if (!t) return; S.f.status[t.dataset.status] = !S.f.status[t.dataset.status]; applyFilters(); };
+  $('f-types').onchange = e => { const v = e.target.value; e.target.checked ? S.f.types.add(v) : S.f.types.delete(v); applyFilters(); };
+  $('types-none').onclick = () => { S.f.types = new Set(); applyFilters(); };
+  $('active-chips').onclick = e => { const b = e.target.closest('[data-clear]'); if (b) clearFilter(b.dataset.clear); };
+  const setColorMode = m => { S.colorMode = m; saveLS('atlas5.colorMode', m); renderMarkers(); };
+  $('contact-toggle').onclick = () => {
+    const on = S.colorMode !== 'contact';
+    if (!on && S.f.contact) { S.f.contact = ''; applyFilters(); }   // en coupant, on retire aussi le filtre de tranche
+    setColorMode(on ? 'contact' : 'statut');
+  };
+  $('legend').onclick = e => {
+    if (e.target.id === 'contact-off') { $('contact-toggle').click(); return; }
+    const lv = e.target.closest('[data-level]');
+    if (lv) { const k = lv.dataset.level === 't' ? '' : lv.dataset.level; S.f.level = S.f.level === k ? '' : k; applyFilters(); return; }
+    const row = e.target.closest('[data-recency]'); if (!row) return;
+    const v = CONTACT_OF[row.dataset.recency];
+    S.f.contact = S.f.contact === v ? '' : v;   // re-clic sur la tranche active = tout réafficher
+    applyFilters();
+  };
+
+  $('locate-btn').onclick = () => {
+    if (!navigator.geolocation) return alert('Géolocalisation indisponible');
+    navigator.geolocation.getCurrentPosition(p => {
+      S.myPos = { lat: p.coords.latitude, lon: p.coords.longitude, label: 'Ma position' };
+      setZone(p.coords.latitude, p.coords.longitude, 'Ma position');
+    }, () => alert("Impossible d'obtenir ta position (autorisation refusée ?)"), { enableHighAccuracy: true, timeout: 10000 });
+  };
+
+  // Panel
+  $('zone-clear').onclick = clearZone;
+  $('radius').onclick = e => { const b = e.target.closest('[data-km]'); if (b && S.zone) { S.zone.km = +b.dataset.km; drawZone(); applyFilters(); fitZone(); } };
+  document.querySelectorAll('.ptab').forEach(b => b.onclick = () => { S.ptab = b.dataset.ptab; S.fiche = null; highlight(); renderPanel(); $('panel-body').scrollTop = 0; if (sheetState === 'peek') setSheet('half'); });
+  $('sheet-handle').onclick = () => setSheet(sheetState === 'peek' ? 'half' : sheetState === 'half' ? 'full' : 'peek');
+  // Sur mobile : toucher la carte replie le panneau pour libérer la vue
+  S.map.on('dragstart', () => { if (isMobile() && sheetState === 'full') setSheet('half'); });
+
+  // Délégation de clics (panel + comptes + synthèse)
+  document.addEventListener('click', e => {
+    const t = e.target;
+    const tour = t.closest('[data-tour]'); if (tour) { e.stopPropagation(); toggleTour(tour.dataset.tour); return; }
+    if (t.closest('[data-back]')) return closeFiche();
+    const mv = t.closest('[data-mv]');
+    if (mv) { const i = +mv.dataset.mv, j = i + +mv.dataset.dir; const a = S.tour.ids; if (j >= 0 && j < a.length) { [a[i], a[j]] = [a[j], a[i]]; saveLS('atlas5.tour', S.tour); renderPanel(); } return; }
+    const zh = t.closest('[data-zone-here]'); if (zh) { const r = S.byId.get(zh.dataset.zoneHere); setZone(r.lat, r.lon, r.nom, 20); return; }
+    const top = t.closest('[data-add-top]'); if (top) return addTopToTour(+top.dataset.addTop);
+    if (t.closest('[data-toggle-detail]')) { S.ficheDetail = !S.ficheDetail; renderPanel(); return; }
+    const gl = t.closest('[data-goto-list]'); if (gl) { S.ptab = 'liste'; S.listSort = gl.dataset.gotoList; renderPanel(); $('panel-body').scrollTop = 0; return; }
+    const ty = t.closest('[data-type]'); if (ty && $('panel').contains(ty)) { S.f.types = new Set([ty.dataset.type]); applyFilters(); return; }
+    const op = t.closest('[data-open]'); if (op) { openFiche(op.dataset.open); const r = S.byId.get(op.dataset.open); if (r && !S.map.getBounds().contains([r.lat, r.lon])) S.map.setView([r.lat, r.lon], 12); return; }
+    const rg = t.closest('[data-region]'); if (rg) { const k = rg.dataset.region; S.openRegions.has(k) ? S.openRegions.delete(k) : S.openRegions.add(k); renderSynthese(); return; }
+    const dp = t.closest('[data-dept]'); if (dp) { const [reg, d] = dp.dataset.dept.split('|'); S.zone = null; drawZone(); S.f.region = reg; buildDeptOptions(); S.f.dept = d; buildDeptOptions(); showView('map'); applyFilters({ fit: true }); return; }
+    const tm = t.closest('[data-type-map]'); if (tm) { S.f.types = new Set([tm.dataset.typeMap]); showView('map'); applyFilters(); return; }
+    if (t.id === 'tour-opt') return optimizeTour();
+    if (t.id === 'tour-clear') { if (confirm('Vider la tournée ?')) { S.tour.ids = []; saveLS('atlas5.tour', S.tour); renderPanel(); } return; }
+    if (t.id === 'tour-export') return downloadCSV('Tournee', ['Ordre', ...EXPORT_H], tourStops().map((r, i) => exportRow(r, i)));
+    if (t.id === 'list-export') return downloadCSV('Selection', EXPORT_H, [...S.filtered].sort(byPrio).map(r => exportRow(r)));
+  });
+  document.addEventListener('change', e => {
+    if (e.target.id === 'list-sort') { S.listSort = e.target.value; renderPanel(); }
+    if (e.target.id === 'tour-ret') { S.tour.ret = e.target.checked; saveLS('atlas5.tour', S.tour); renderPanel(); }
+  });
+
+  // Comptes
+  $('c-search').oninput = e => { S.comptesQ = e.target.value; renderComptes(); };
+  $('c-sort').onchange = e => { S.comptesSort = e.target.value; renderComptes(); };
+  $('c-export').onclick = () => downloadCSV('Comptes', EXPORT_H, comptesRows().map(r => exportRow(r)));
+
+  window.addEventListener('resize', () => { if (!isMobile()) document.documentElement.style.removeProperty('--sheet-h'); });
+}
+</script>
+</body>
+</html>

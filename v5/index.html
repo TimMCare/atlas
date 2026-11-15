@@ -616,6 +616,7 @@ function ingest(data) {
   S.devis = data.devis || (S.data && S.data.devis) || {};
   S.comptes = aggregateSellsy(asObjects(data.sellsy));
   S.rows = buildRows(asObjects(data.main));
+  markDuplicates(S.rows);
   S.byId = new Map(S.rows.map(r => [r.id, r]));
   S.horsBase = Object.keys(S.comptes).filter(id => !S.byId.has(id)).length;
   computePriorities();
@@ -683,7 +684,7 @@ function aggregateSellsy(data) {
 // ---------------------------------------------------------------- DATA : ÉTABLISSEMENTS
 function buildRows(data) {
   const out = [];
-  data.forEach(row => {
+  data.forEach((row, i) => {
     const lat = parseFloat(String(row['Latitude'] || '').replace(',', '.'));
     const lon = parseFloat(String(row['Longitude'] || '').replace(',', '.'));
     if (isNaN(lat) || isNaN(lon)) return;
@@ -706,8 +707,9 @@ function buildRows(data) {
       adresse: (row['Adresse Complète'] || '').trim(), ville: (row['Ville'] || '').trim(), cp: (row['CP'] || '').toString().trim(),
       dept: (row['Département'] || '').trim(), region: (row['Région'] || '').trim(),
       lat, lon, contact, note: (row['Visite prévue'] || '').trim(),
-      isDup: statut === 'Prospect' && !!(row['Vérification Doublon'] || '').trim(),
-      dupInfo: (row['Détails Doublons'] || '').trim(),
+      // Doublon : calculé plus bas (markDuplicates). La colonne « Vérification Doublon » du Sheet n'est plus
+      // utilisée : elle marque toute ligne au même point GPS, donc surtout des établissements distincts d'un même site.
+      isDup: false, dupOf: null, ligne: i + 2,
       caSheet: num(row['CA']), corrDate: (row['Vérifié le'] || '').toString().trim(),
       hs
     };
@@ -738,6 +740,42 @@ function buildRows(data) {
 }
 
 // FINESS : places installées (médico-social), entité juridique gestionnaire, n° FINESS
+// Vrai doublon = même nom (aux mots creux près) ET même lieu (< 150 m). Les établissements différents d'un
+// même site (CH + son EHPAD, HDJ adultes / enfants…) et les EHPAD multisites (même nom, autre adresse) restent visibles.
+// Dans chaque groupe, on garde la fiche la plus « vivante » (client/devis, puis HubSpot, puis contact, puis le plus petit ID) ;
+// seules les autres fiches au statut Prospect sont marquées doublon.
+const DUP_VIDES = new Set('de du des la le les l d et en a au aux sur sous cedex site'.split(' '));
+const DUP_FAIBLES = new Set(['mutualiste', 'centre', 'residence']);
+function dupTokens(s) {
+  return new Set(norm(s).replace(/\bsainte\b/g, 'ste').replace(/\bsaint\b/g, 'st').split(/[^a-z0-9]+/).filter(t => t && !DUP_VIDES.has(t)));
+}
+function memeNom(a, b) {
+  if (!a.size || !b.size) return false;
+  for (const t of a) if (!b.has(t) && !DUP_FAIBLES.has(t)) return false;
+  for (const t of b) if (!a.has(t) && !DUP_FAIBLES.has(t)) return false;
+  return true;
+}
+function markDuplicates(rows) {
+  const parCP = new Map();
+  rows.forEach(r => { r.isDup = false; r.dupOf = null; r._tk = dupTokens(r.nom); const k = r.cp.slice(0, 5); (parCP.get(k) || parCP.set(k, []).get(k)).push(r); });
+  const parent = new Map(), find = r => { while (parent.get(r) && parent.get(r) !== r) r = parent.get(r); return r; };
+  parCP.forEach(g => {
+    for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
+      const a = g[i], b = g[j];
+      if (hav(a.lat, a.lon, b.lat, b.lon) < 0.15 && memeNom(a._tk, b._tk)) parent.set(find(b), find(a));
+    }
+  });
+  const groupes = new Map();
+  rows.forEach(r => { if (parent.has(r)) { const k = find(r); (groupes.get(k) || groupes.set(k, [k]).get(k)).includes(r) || groupes.get(k).push(r); } });
+  const rang = r => [r.statut === 'Prospect' ? 1 : 0, r.hs ? 0 : 1, r.contact ? 0 : 1, +r.id || 1e12];
+  const cmp = (a, b) => { const x = rang(a), y = rang(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+  groupes.forEach(g => {
+    g.sort(cmp);
+    g.slice(1).forEach(r => { if (r.statut === 'Prospect') { r.isDup = true; r.dupOf = g[0].id; } });
+  });
+  rows.forEach(r => delete r._tk);
+}
+
 function attachFiness(r) {
   const f = S.finess && S.finess[r.id];
   r.places = f ? f[0] : 0; r.ej = f ? f[1] : ''; r.finessNo = f ? f[4] : '';
@@ -1348,7 +1386,7 @@ function ficheHTML(r) {
     ${r.compte && r.compte.derniereFacture ? `<div class="small" style="margin-top:4px">Dernière facture : <b>${fdate(r.compte.derniereFacture)}</b></div>` : ''}
     ${r.note ? `<div class="note" style="margin-top:8px">📝 ${esc(r.note)}</div>` : ''}
     ${r.adresse ? `<div class="small muted" style="margin-top:8px">${esc(r.adresse)}</div>` : ''}
-    ${r.isDup && r.dupInfo ? `<div class="note warn" style="margin-top:8px">${esc(r.dupInfo)}</div>` : ''}
+    ${r.isDup && S.byId.get(r.dupOf) ? `<div class="note warn" style="margin-top:8px">Doublon probable de « ${esc(S.byId.get(r.dupOf).nom)} » (même nom, même adresse). À supprimer dans le Sheet : ligne ${r.ligne}.</div>` : ''}
     <div class="small muted" style="margin-top:6px">ID ${esc(r.id)}</div>
   </div>`;
 
